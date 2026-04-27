@@ -16,6 +16,12 @@ export const logout = () =>
 export const changePassword = (current_password, new_password) =>
   api.put('/auth/password', { current_password, new_password }).then(r => r.data)
 
+export const forgotPassword = email =>
+  api.post('/auth/forgot-password', { email }).then(r => r.data)
+
+export const resetPassword = (token, new_password) =>
+  api.post('/auth/reset-password', { token, new_password }).then(r => r.data)
+
 // ── User Management ───────────────────────────────────────────────────────────
 
 export const getUsers = () =>
