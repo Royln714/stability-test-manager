@@ -79,27 +79,29 @@ function AutocompleteCell({ row, onUpdate }) {
   function commit() {
     setEditing(false)
     setSuggestions([])
-    if (val !== (row.trade_name ?? '')) onUpdate('trade_name', val)
+    if (val !== (row.trade_name ?? '')) onUpdate({ trade_name: val })
   }
 
   function selectSuggestion(item) {
+    const updates = { trade_name: item.trade_name, inci_name: item.inci || '', cas_no: item.cas || '' }
+    if (!row.supplier && item.supplier) updates.supplier = item.supplier
+    if (!row.function && item.function) updates.function = item.function
     setVal(item.trade_name)
     setSuggestions([])
     setEditing(false)
-    onUpdate('trade_name', item.trade_name)
-    onUpdate('inci_name', item.inci || '')
-    onUpdate('cas_no', item.cas || '')
-    if (!row.supplier && item.supplier) onUpdate('supplier', item.supplier)
-    if (!row.function && item.function) onUpdate('function', item.function)
+    onUpdate(updates)
   }
 
   useEffect(() => {
     function onOutside(e) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) commit()
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setEditing(false)
+        setSuggestions([])
+      }
     }
     if (editing) document.addEventListener('mousedown', onOutside)
     return () => document.removeEventListener('mousedown', onOutside)
-  }, [editing, val, row.trade_name])
+  }, [editing])
 
   if (!editing) {
     return (
@@ -205,7 +207,10 @@ function IngredientsTable({ rows, bulkSize, onChange }) {
                 <EditCell value={row.part} onChange={v => update(row.id, 'part', v)} placeholder="A" align="center" />
               </td>
               <td className="border border-gray-300 px-1 py-1">
-                <AutocompleteCell row={row} onUpdate={(field, val) => update(row.id, field, val)} />
+                <AutocompleteCell
+                  row={row}
+                  onUpdate={updates => onChange(rows.map(r => r.id === row.id ? { ...r, ...updates } : r))}
+                />
               </td>
               <td className="border border-gray-300 px-1 py-1">
                 <EditCell value={row.inci_name} onChange={v => update(row.id, 'inci_name', v)} placeholder="INCI name..." />
