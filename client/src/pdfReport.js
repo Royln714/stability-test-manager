@@ -60,6 +60,8 @@ export async function generatePDF(sample) {
       { content: '25°C', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fillColor: BLUE_FILL, textColor: [30, 80, 180] } },
       { content: '45°C', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fillColor: AMBER_FILL, textColor: [146, 64, 14] } },
       { content: '50°C', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fillColor: RED_FILL, textColor: [185, 28, 28] } },
+      { content: 'Spindle #', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold', halign: 'center' } },
+      { content: 'RPM', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold', halign: 'center' } },
       { content: 'Notes', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } },
     ],
     [
@@ -88,6 +90,8 @@ export async function generatePDF(sample) {
       cell(r?.viscosity_45, 45),
       cell(r?.ph_50, 50),
       cell(r?.viscosity_50, 50),
+      { content: r?.spindle || '', styles: { halign: 'center', fontSize: 7 } },
+      { content: r?.rpm != null && r?.rpm !== '' ? String(r.rpm) : '', styles: { halign: 'center', fontSize: 7 } },
       { content: r?.notes || '', styles: { fontSize: 7 } },
     ]
   })
@@ -236,25 +240,25 @@ export async function generateFormulationPDF(f) {
     return (n / 100 * bulkSize).toFixed(2)
   }
 
-  const ingHead = [['No', 'Trade Name', 'INCI Name', '%', bulkSize > 0 ? `Bulk (${bulkSize}g)` : 'Bulk', 'Principal', 'Function']]
+  const ingHead = [['No', 'Trade Name', 'INCI Name', 'CAS No.', '%', bulkSize > 0 ? `Bulk (${bulkSize}g)` : 'Bulk', 'Principal', 'Function', 'Compliance']]
   const ingBody = (f.ingredients || []).map((r, i) => [
     `${r.part ? `[${r.part}] ` : ''}${i + 1}`,
-    r.trade_name || '', r.inci_name || '',
+    r.trade_name || '', r.inci_name || '', r.cas_no || '',
     r.percent || '', calcBulk(r.percent),
-    r.supplier || '', r.function || '',
+    r.supplier || '', r.function || '', r.compliance || '',
   ])
   const total = (f.ingredients || []).reduce((s, r) => s + (parseFloat(r.percent) || 0), 0)
-  ingBody.push([{ content: 'Total', colSpan: 3, styles: { halign: 'right', fontStyle: 'bold' } },
+  ingBody.push([{ content: 'Total', colSpan: 4, styles: { halign: 'right', fontStyle: 'bold' } },
     { content: `${total.toFixed(2)}%`, styles: { halign: 'right', fontStyle: 'bold' } },
     { content: bulkSize > 0 ? `${(total / 100 * bulkSize).toFixed(2)}g` : '', styles: { fontStyle: 'bold' } },
-    '', ''])
+    '', '', ''])
 
   autoTable(doc, {
     startY: y, head: ingHead, body: ingBody, theme: 'grid',
     styles: { fontSize: 7, cellPadding: 1.5, lineColor: [200, 200, 200], lineWidth: 0.2 },
     headStyles: { fillColor: [30, 64, 175], textColor: 255, fontStyle: 'bold', fontSize: 7 },
     alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: { 0: { cellWidth: 14 }, 3: { cellWidth: 12, halign: 'right' }, 4: { cellWidth: 18, halign: 'right' } },
+    columnStyles: { 0: { cellWidth: 12 }, 3: { cellWidth: 18 }, 4: { cellWidth: 10, halign: 'right' }, 5: { cellWidth: 16, halign: 'right' } },
     margin: { left: margin, right: margin },
   })
   y = doc.lastAutoTable.finalY + 7
