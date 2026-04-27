@@ -54,46 +54,63 @@ export async function generatePDF(sample) {
   doc.line(margin, infoY + 4, pageW - margin, infoY + 4)
 
   // ── Results Table ─────────────────────────────────────────────────────────
-  const tableHead = [
-    [
-      { content: 'Duration', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } },
-      { content: '25°C', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fillColor: BLUE_FILL, textColor: [30, 80, 180] } },
-      { content: '45°C', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fillColor: AMBER_FILL, textColor: [146, 64, 14] } },
-      { content: '50°C', colSpan: 2, styles: { halign: 'center', fontStyle: 'bold', fillColor: RED_FILL, textColor: [185, 28, 28] } },
-      { content: 'Spindle #', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold', halign: 'center' } },
-      { content: 'RPM', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold', halign: 'center' } },
-      { content: 'Notes', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } },
-    ],
-    [
-      { content: 'pH', styles: { halign: 'center', fillColor: BLUE_FILL } },
-      { content: 'Viscosity (cP)', styles: { halign: 'center', fillColor: BLUE_FILL } },
-      { content: 'pH', styles: { halign: 'center', fillColor: AMBER_FILL } },
-      { content: 'Viscosity (cP)', styles: { halign: 'center', fillColor: AMBER_FILL } },
-      { content: 'pH', styles: { halign: 'center', fillColor: RED_FILL } },
-      { content: 'Viscosity (cP)', styles: { halign: 'center', fillColor: RED_FILL } },
-    ],
+  const pdfTemps = sample.temps || [
+    { value: 25, na_tps: [] },
+    { value: 45, na_tps: ['Initial'] },
+    { value: 50, na_tps: ['Initial', '2_weeks'] },
   ]
+  const PDF_SUFFIXES = ['25', '45', '50']
+  const TEMP_FILLS = [BLUE_FILL, AMBER_FILL, RED_FILL]
+  const TEMP_TEXT = [[30, 80, 180], [146, 64, 14], [185, 28, 28]]
+
+  const row1 = [{ content: 'Duration', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } }]
+  const row2 = []
+  pdfTemps.forEach((t, i) => {
+    const fill = TEMP_FILLS[i] || BLUE_FILL
+    const textColor = TEMP_TEXT[i] || [30, 80, 180]
+    row1.push({ content: `${t.value}°C`, colSpan: 4, styles: { halign: 'center', fontStyle: 'bold', fillColor: fill, textColor } })
+    row2.push(
+      { content: 'pH', styles: { halign: 'center', fillColor: fill } },
+      { content: 'Viscosity (cP)', styles: { halign: 'center', fillColor: fill } },
+      { content: 'Spindle #', styles: { halign: 'center', fillColor: fill } },
+      { content: 'RPM', styles: { halign: 'center', fillColor: fill } },
+    )
+  })
+  row1.push({ content: 'Notes', rowSpan: 2, styles: { valign: 'middle', fontStyle: 'bold' } })
+  const tableHead = [row1, row2]
+
+  const naCell = { content: '—', styles: { fillColor: NA_FILL, textColor: [160, 160, 160], halign: 'center' } }
+  const numCell = val => ({ content: fmt(val) || '', styles: { halign: 'center' } })
+  const txtCell = val => ({ content: val || '', styles: { halign: 'center', fontSize: 7 } })
 
   const tableBody = TIME_POINTS.map(tp => {
     const r = byTP[tp]
-    const na = (temp) => isNA(temp, tp)
+    const row = [{ content: TIME_LABELS[tp], styles: { fontStyle: 'bold' } }]
+    pdfTemps.forEach((t, i) => {
+      const suf = PDF_SUFFIXES[i]
+      const isNAtp = (t.na_tps || []).includes(tp)
+      if (isNAtp) {
+        row.push(naCell, naCell, naCell, naCell)
+      } else {
+        row.push(
+          numCell(r?.[`ph_${suf}`]),
+          numCell(r?.[`viscosity_${suf}`]),
+          txtCell(r?.[`spindle_${suf}`]),
+          txtCell(r?.[`rpm_${suf}`] != null && r?.[`rpm_${suf}`] !== '' ? String(r[`rpm_${suf}`]) : ''),
+        )
+      }
+    })
+    row.push({ content: r?.notes || '', styles: { fontSize: 7 } })
+    return row
+  })
 
-    const cell = (val, temp) => na(temp)
-      ? { content: '—', styles: { fillColor: NA_FILL, textColor: [160, 160, 160], halign: 'center' } }
-      : { content: fmt(val), styles: { halign: 'center' } }
-
-    return [
-      { content: TIME_LABELS[tp], styles: { fontStyle: 'bold' } },
-      cell(r?.ph_25, 25),
-      cell(r?.viscosity_25, 25),
-      cell(r?.ph_45, 45),
-      cell(r?.viscosity_45, 45),
-      cell(r?.ph_50, 50),
-      cell(r?.viscosity_50, 50),
-      { content: r?.spindle || '', styles: { halign: 'center', fontSize: 7 } },
-      { content: r?.rpm != null && r?.rpm !== '' ? String(r.rpm) : '', styles: { halign: 'center', fontSize: 7 } },
-      { content: r?.notes || '', styles: { fontSize: 7 } },
-    ]
+  const colStyles = { 0: { cellWidth: 20 } }
+  pdfTemps.forEach((_, i) => {
+    const base = 1 + i * 4
+    colStyles[base] = { cellWidth: 16, halign: 'center' }
+    colStyles[base + 1] = { cellWidth: 20, halign: 'center' }
+    colStyles[base + 2] = { cellWidth: 15, halign: 'center' }
+    colStyles[base + 3] = { cellWidth: 12, halign: 'center' }
   })
 
   autoTable(doc, {
@@ -101,19 +118,10 @@ export async function generatePDF(sample) {
     head: tableHead,
     body: tableBody,
     theme: 'grid',
-    styles: { fontSize: 8, cellPadding: 2.5, lineColor: [200, 200, 200], lineWidth: 0.2 },
+    styles: { fontSize: 8, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.2 },
     headStyles: { fillColor: [248, 250, 252], textColor: [30, 30, 30], fontStyle: 'bold', fontSize: 8 },
     alternateRowStyles: { fillColor: [250, 250, 250] },
-    columnStyles: {
-      0: { cellWidth: 22 },
-      1: { cellWidth: 22 },
-      2: { cellWidth: 28 },
-      3: { cellWidth: 22 },
-      4: { cellWidth: 28 },
-      5: { cellWidth: 22 },
-      6: { cellWidth: 28 },
-      7: { cellWidth: 'auto' },
-    },
+    columnStyles: colStyles,
     margin: { left: margin, right: margin },
   })
 
