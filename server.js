@@ -18,9 +18,12 @@ const DB_FILE = path.join(DATA_DIR, 'stability_data.json');
 
 function readDB() {
   if (!fs.existsSync(DB_FILE)) {
-    return { _counters: { samples: 0, results: 0, images: 0 }, samples: [], results: [], images: [] };
+    return { _counters: { samples: 0, results: 0, images: 0, formulations: 0 }, samples: [], results: [], images: [], formulations: [] };
   }
-  return JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+  const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+  if (!data.formulations) data.formulations = [];
+  if (!data._counters.formulations) data._counters.formulations = 0;
+  return data;
 }
 
 function writeDB(db) {
@@ -213,6 +216,97 @@ app.delete('/api/images/:id', (req, res) => {
     writeDB(db);
   }
   res.json({ success: true });
+});
+
+// ── FORMULATIONS ─────────────────────────────────────────────────────────────
+
+const DEFAULT_DISCLAIMER = 'This information is provided based on our technical data and present knowledge. However, we make no warranties, expressed or implied, and assume no liabilities in connection with any use of the information with respect to specific property, safety and suitability for a specific application. The suitability and safety of the final formulation should be confirmed in all respects by appropriate evaluation. It is also not guaranteed that use of the information does not fall within the scope of any intellectual property rights.';
+
+app.get('/api/formulations', (req, res) => {
+  const db = readDB();
+  res.json(db.formulations.sort((a, b) => b.created_at.localeCompare(a.created_at)));
+});
+
+app.get('/api/formulations/:id', (req, res) => {
+  const db = readDB();
+  const f = db.formulations.find(x => x.id === Number(req.params.id));
+  if (!f) return res.status(404).json({ error: 'Not found' });
+  res.json(f);
+});
+
+app.post('/api/formulations', (req, res) => {
+  const db = readDB();
+  const f = {
+    id: nextId(db, 'formulations'),
+    product_name: req.body.product_name || '',
+    ref_no: req.body.ref_no || '',
+    description: req.body.description || '',
+    bulk_size: req.body.bulk_size || 100,
+    ingredients: req.body.ingredients || [],
+    procedure: req.body.procedure || [],
+    specifications: req.body.specifications || [],
+    company_name: req.body.company_name || 'TECHNECTURE SDN BHD',
+    company_address: req.body.company_address || 'No6, Jalan Spring 34/32, Golden Pavilion Industrial Park @Bukit Kemuning\nSeksyen 34, 40470 Shah Alam, Selangor.',
+    company_tel: req.body.company_tel || '+603-51318868',
+    company_fax: req.body.company_fax || '+603-51314899',
+    logo_filename: req.body.logo_filename || '',
+    ref_image_filename: req.body.ref_image_filename || '',
+    disclaimer: req.body.disclaimer || DEFAULT_DISCLAIMER,
+    remarks: req.body.remarks || '',
+    created_at: now(),
+  };
+  db.formulations.push(f);
+  writeDB(db);
+  res.status(201).json(f);
+});
+
+app.put('/api/formulations/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const db = readDB();
+  const idx = db.formulations.findIndex(x => x.id === id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  db.formulations[idx] = { ...db.formulations[idx], ...req.body, id, created_at: db.formulations[idx].created_at };
+  writeDB(db);
+  res.json(db.formulations[idx]);
+});
+
+app.delete('/api/formulations/:id', (req, res) => {
+  const id = Number(req.params.id);
+  const db = readDB();
+  const f = db.formulations.find(x => x.id === id);
+  if (f) {
+    [f.logo_filename, f.ref_image_filename].filter(Boolean).forEach(fn => {
+      const fp = path.join(uploadsDir, fn);
+      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+    });
+  }
+  db.formulations = db.formulations.filter(x => x.id !== id);
+  writeDB(db);
+  res.json({ success: true });
+});
+
+app.post('/api/formulations/:id/logo', upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file' });
+  const id = Number(req.params.id);
+  const db = readDB();
+  const f = db.formulations.find(x => x.id === id);
+  if (!f) return res.status(404).json({ error: 'Not found' });
+  if (f.logo_filename) { const old = path.join(uploadsDir, f.logo_filename); if (fs.existsSync(old)) fs.unlinkSync(old); }
+  f.logo_filename = req.file.filename;
+  writeDB(db);
+  res.json({ filename: req.file.filename });
+});
+
+app.post('/api/formulations/:id/refimage', upload.single('image'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file' });
+  const id = Number(req.params.id);
+  const db = readDB();
+  const f = db.formulations.find(x => x.id === id);
+  if (!f) return res.status(404).json({ error: 'Not found' });
+  if (f.ref_image_filename) { const old = path.join(uploadsDir, f.ref_image_filename); if (fs.existsSync(old)) fs.unlinkSync(old); }
+  f.ref_image_filename = req.file.filename;
+  writeDB(db);
+  res.json({ filename: req.file.filename });
 });
 
 // ── Production static serve ───────────────────────────────────────────────────
