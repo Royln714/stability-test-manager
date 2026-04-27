@@ -3,26 +3,39 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// DATA_DIR lets cloud hosts (Railway, Render) mount a persistent volume
 const DATA_DIR = process.env.DATA_DIR || __dirname;
 const uploadsDir = path.join(DATA_DIR, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+const JWT_SECRET = process.env.JWT_SECRET || 'stab-mgr-jwt-secret-change-in-prod';
+const COOKIE_NAME = 'stab_auth';
+const COOKIE_OPTS = { httpOnly: true, sameSite: 'strict', maxAge: 7 * 24 * 60 * 60 * 1000 };
 
 // ── JSON file database ────────────────────────────────────────────────────────
 
 const DB_FILE = path.join(DATA_DIR, 'stability_data.json');
 
 function readDB() {
+  let data;
   if (!fs.existsSync(DB_FILE)) {
-    return { _counters: { samples: 0, results: 0, images: 0, formulations: 0 }, samples: [], results: [], images: [], formulations: [] };
+    data = { _counters: {}, samples: [], results: [], images: [], formulations: [], users: [], audit_log: [] };
+  } else {
+    data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
   }
-  const data = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
   if (!data.formulations) data.formulations = [];
-  if (!data._counters.formulations) data._counters.formulations = 0;
+  if (!data.users) data.users = [];
+  if (!data.audit_log) data.audit_log = [];
+  if (!data._counters) data._counters = {};
+  ['samples','results','images','formulations','users','audit_log'].forEach(t => {
+    if (!data._counters[t]) data._counters[t] = 0;
+  });
   return data;
 }
 
@@ -43,11 +56,76 @@ function today() { return new Date().toISOString().split('T')[0]; }
 const TIME_ORDER = ['Initial', '2_weeks', '1_month', '2_months', '3_months'];
 const tpSort = tp => { const i = TIME_ORDER.indexOf(tp); return i === -1 ? 99 : i; };
 
+// ── Auth helpers ──────────────────────────────────────────────────────────────
+
+const loginAttempts = new Map();
+function checkRateLimit(ip) {
+  const now = Date.now();
+  const list = (loginAttempts.get(ip) || []).filter(t => now - t < 15 * 60 * 1000);
+  if (list.length >= 10) return false;
+  list.push(now);
+  loginAttempts.set(ip, list);
+  return true;
+}
+
+function requireAuth(req, res, next) {
+  const token = req.cookies[COOKIE_NAME];
+  if (!token) return res.status(401).json({ error: 'Not authenticated' });
+  try {
+    req.user = jwt.verify(token, JWT_SECRET);
+    next();
+  } catch {
+    res.clearCookie(COOKIE_NAME);
+    return res.status(401).json({ error: 'Session expired' });
+  }
+}
+
+function requireAdmin(req, res, next) {
+  requireAuth(req, res, () => {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin access required' });
+    next();
+  });
+}
+
+function logAudit(db, userId, username, action, ip, details) {
+  db.audit_log.push({ id: nextId(db, 'audit_log'), user_id: userId, username, action, ip: ip || '', details: details || '', created_at: now() });
+  if (db.audit_log.length > 500) db.audit_log = db.audit_log.slice(-500);
+}
+
+// ── Ensure default admin on startup ──────────────────────────────────────────
+
+(function ensureAdmin() {
+  const db = readDB();
+  if (db.users.length === 0) {
+    const hash = bcrypt.hashSync('Admin@123', 10);
+    db.users.push({
+      id: nextId(db, 'users'),
+      username: 'admin',
+      email: '',
+      password_hash: hash,
+      role: 'admin',
+      is_active: true,
+      created_at: now(),
+      last_login: null,
+    });
+    writeDB(db);
+    console.log('  Default admin created — username: admin  password: Admin@123');
+    console.log('  Change the password after first login!\n');
+  }
+})();
+
 // ── Middleware ────────────────────────────────────────────────────────────────
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+app.use(cookieParser());
 app.use('/uploads', express.static(uploadsDir));
+
+// Protect all /api/* routes except /api/auth/*
+app.use('/api', (req, res, next) => {
+  if (req.path.startsWith('/auth/')) return next();
+  requireAuth(req, res, next);
+});
 
 const storage = multer.diskStorage({
   destination: uploadsDir,
@@ -60,6 +138,145 @@ const upload = multer({
   storage,
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (req, file, cb) => cb(null, /\.(jpe?g|png|gif|webp|pdf)$/i.test(file.originalname))
+});
+
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  const db = readDB();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user) return res.status(401).json({ error: 'User not found' });
+  const { password_hash, ...safe } = user;
+  res.json(safe);
+});
+
+app.post('/api/auth/login', (req, res) => {
+  const ip = req.ip || req.connection.remoteAddress || '';
+  if (!checkRateLimit(ip)) {
+    return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
+  }
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+
+  const db = readDB();
+  const user = db.users.find(u => u.username === username.trim());
+  if (!user || !user.is_active) {
+    logAudit(db, 0, username, 'login_fail', ip, 'User not found or inactive');
+    writeDB(db);
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+
+  const valid = bcrypt.compareSync(password, user.password_hash);
+  if (!valid) {
+    logAudit(db, user.id, username, 'login_fail', ip, 'Wrong password');
+    writeDB(db);
+    return res.status(401).json({ error: 'Invalid username or password' });
+  }
+
+  user.last_login = now();
+  logAudit(db, user.id, user.username, 'login', ip, '');
+  writeDB(db);
+
+  const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+  res.cookie(COOKIE_NAME, token, COOKIE_OPTS);
+  const { password_hash, ...safe } = user;
+  res.json(safe);
+});
+
+app.post('/api/auth/logout', requireAuth, (req, res) => {
+  const db = readDB();
+  logAudit(db, req.user.id, req.user.username, 'logout', req.ip || '', '');
+  writeDB(db);
+  res.clearCookie(COOKIE_NAME);
+  res.json({ success: true });
+});
+
+app.put('/api/auth/password', requireAuth, (req, res) => {
+  const { current_password, new_password } = req.body;
+  if (!current_password || !new_password) return res.status(400).json({ error: 'Both passwords required' });
+  if (new_password.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  const db = readDB();
+  const user = db.users.find(u => u.id === req.user.id);
+  if (!user || !bcrypt.compareSync(current_password, user.password_hash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+  user.password_hash = bcrypt.hashSync(new_password, 10);
+  logAudit(db, user.id, user.username, 'password_changed', req.ip || '', '');
+  writeDB(db);
+  res.json({ success: true });
+});
+
+// ── USER MANAGEMENT (admin only) ──────────────────────────────────────────────
+
+app.get('/api/users', requireAdmin, (req, res) => {
+  const db = readDB();
+  res.json(db.users.map(u => { const { password_hash, ...safe } = u; return safe; }));
+});
+
+app.post('/api/users', requireAdmin, (req, res) => {
+  const { username, email, password, role } = req.body;
+  if (!username?.trim()) return res.status(400).json({ error: 'Username required' });
+  if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const db = readDB();
+  if (db.users.find(u => u.username === username.trim())) {
+    return res.status(400).json({ error: 'Username already exists' });
+  }
+  const user = {
+    id: nextId(db, 'users'),
+    username: username.trim(),
+    email: email || '',
+    password_hash: bcrypt.hashSync(password, 10),
+    role: role === 'admin' ? 'admin' : 'user',
+    is_active: true,
+    created_at: now(),
+    last_login: null,
+  };
+  db.users.push(user);
+  logAudit(db, req.user.id, req.user.username, 'user_created', req.ip || '', `Created user: ${username}`);
+  writeDB(db);
+  const { password_hash, ...safe } = user;
+  res.status(201).json(safe);
+});
+
+app.put('/api/users/:id', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const { username, email, password, role, is_active } = req.body;
+  const db = readDB();
+  const user = db.users.find(u => u.id === id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  if (username?.trim()) {
+    const taken = db.users.find(u => u.username === username.trim() && u.id !== id);
+    if (taken) return res.status(400).json({ error: 'Username already taken' });
+    user.username = username.trim();
+  }
+  if (email !== undefined) user.email = email;
+  if (role === 'admin' || role === 'user') user.role = role;
+  if (typeof is_active === 'boolean') user.is_active = is_active;
+  if (password) {
+    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    user.password_hash = bcrypt.hashSync(password, 10);
+  }
+  logAudit(db, req.user.id, req.user.username, 'user_updated', req.ip || '', `Updated user: ${user.username}`);
+  writeDB(db);
+  const { password_hash, ...safe } = user;
+  res.json(safe);
+});
+
+app.delete('/api/users/:id', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  if (id === req.user.id) return res.status(400).json({ error: 'Cannot delete your own account' });
+  const db = readDB();
+  const user = db.users.find(u => u.id === id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  logAudit(db, req.user.id, req.user.username, 'user_deleted', req.ip || '', `Deleted user: ${user.username}`);
+  db.users = db.users.filter(u => u.id !== id);
+  writeDB(db);
+  res.json({ success: true });
+});
+
+app.get('/api/audit-log', requireAdmin, (req, res) => {
+  const db = readDB();
+  res.json([...db.audit_log].reverse().slice(0, 200));
 });
 
 // ── SAMPLES ───────────────────────────────────────────────────────────────────
