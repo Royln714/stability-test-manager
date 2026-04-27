@@ -31,6 +31,7 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
     ph_25: '', viscosity_25: '', spindle_25: '', rpm_25: '',
     ph_45: '', viscosity_45: '', spindle_45: '', rpm_45: '',
     ph_50: '', viscosity_50: '', spindle_50: '', rpm_50: '',
+    appearance: '', color_obs: '', odor: '', phase_sep: '',
     notes: '',
     measured_at: new Date().toISOString().split('T')[0],
   })
@@ -46,6 +47,8 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
         spindle_45: existing.spindle_45 || '', rpm_45: existing.rpm_45 ?? '',
         ph_50: existing.ph_50 ?? '', viscosity_50: existing.viscosity_50 ?? '',
         spindle_50: existing.spindle_50 || '', rpm_50: existing.rpm_50 ?? '',
+        appearance: existing.appearance || '', color_obs: existing.color_obs || '',
+        odor: existing.odor || '', phase_sep: existing.phase_sep || '',
         notes: existing.notes || '',
         measured_at: existing.measured_at || new Date().toISOString().split('T')[0],
       })
@@ -110,6 +113,26 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
               </div>
             )
           })}
+
+          {/* Organoleptic */}
+          <div className="rounded-xl border border-purple-100 p-3 bg-purple-50/40">
+            <p className="text-xs font-semibold uppercase tracking-wide text-purple-700 mb-2">Organoleptic Observations</p>
+            <div className="grid grid-cols-2 gap-3">
+              <TextInput label="Appearance" value={form.appearance} onChange={v => set('appearance', v)} placeholder="e.g. Clear, Hazy..." />
+              <TextInput label="Color" value={form.color_obs} onChange={v => set('color_obs', v)} placeholder="e.g. White, Yellowish..." />
+              <TextInput label="Odor" value={form.odor} onChange={v => set('odor', v)} placeholder="e.g. Normal, Off-note..." />
+              <div>
+                <label className="label">Phase Separation</label>
+                <select className="input" value={form.phase_sep} onChange={e => set('phase_sep', e.target.value)}>
+                  <option value="">— N/A —</option>
+                  <option value="None">None</option>
+                  <option value="Slight">Slight</option>
+                  <option value="Moderate">Moderate</option>
+                  <option value="Severe">Severe</option>
+                </select>
+              </div>
+            </div>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
