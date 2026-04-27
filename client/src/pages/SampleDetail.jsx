@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { getSample, updateSample, upsertResult, deleteResult, uploadImage, updateImageCaption, deleteImage, getFormulations } from '../api'
 import DataEntryModal from '../components/DataEntryModal'
@@ -66,30 +66,58 @@ function NotesCell({ row, timePoint, onSave }) {
   )
 }
 
-// ── Results Table ─────────────────────────────────────────────────────────────
+// ── Inline Editable Result Cell ───────────────────────────────────────────────
 
-function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes }) {
-  const byTP = Object.fromEntries(results.map(r => [r.time_point, r]))
+function InlineResultCell({ value, onSave, type = 'number' }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(value ?? '')
+  useEffect(() => { setVal(value ?? '') }, [value])
 
-  function DataCell({ tp, suffix, tempIdx }) {
-    const isNA = (temps[tempIdx]?.na_tps || []).includes(tp)
-    if (isNA) return <td className="na-cell border border-gray-200 px-2 py-2 text-xs">—</td>
-    const row = byTP[tp]
-    const phVal = fmt(row?.[`ph_${suffix}`])
-    const viscVal = fmt(row?.[`viscosity_${suffix}`])
+  function commit() {
+    setEditing(false)
+    if (String(val) !== String(value ?? '')) onSave(val)
+  }
+
+  const display = type === 'number' && value !== null && value !== undefined && value !== ''
+    ? Number(value).toFixed(2) : value
+
+  if (editing) {
     return (
-      <>
-        <td className="border border-gray-200 px-2 py-2 text-xs text-center cursor-pointer hover:bg-blue-50 transition-colors font-medium"
-          onClick={() => onCellClick(tp)} title="Click to edit">
-          {phVal ?? <span className="text-gray-300">+</span>}
-        </td>
-        <td className="border border-gray-200 px-2 py-2 text-xs text-center cursor-pointer hover:bg-blue-50 transition-colors font-medium"
-          onClick={() => onCellClick(tp)} title="Click to edit">
-          {viscVal ?? <span className="text-gray-300">+</span>}
-        </td>
-      </>
+      <td className="border border-gray-200 px-1 py-0.5">
+        <input
+          autoFocus
+          type={type}
+          step={type === 'number' ? 'any' : undefined}
+          className="w-full text-xs px-1 py-1 border border-blue-400 rounded focus:outline-none text-center"
+          style={{ minWidth: 44 }}
+          value={val}
+          onChange={e => setVal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => {
+            if (e.key === 'Enter') commit()
+            if (e.key === 'Escape') { setEditing(false); setVal(value ?? '') }
+          }}
+        />
+      </td>
     )
   }
+  return (
+    <td
+      className="border border-gray-200 px-2 py-2 text-xs text-center cursor-pointer hover:bg-blue-50 transition-colors font-medium"
+      onClick={() => setEditing(true)}
+      title="Click to edit"
+    >
+      {display !== null && display !== undefined && display !== ''
+        ? display
+        : <span className="text-gray-300">+</span>}
+    </td>
+  )
+}
+
+// ── Results Table ─────────────────────────────────────────────────────────────
+
+function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, onSaveCell }) {
+  const byTP = Object.fromEntries(results.map(r => [r.time_point, r]))
 
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
@@ -98,23 +126,21 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes }) 
           <tr className="bg-gray-50">
             <th className="border border-gray-200 px-3 py-2.5 text-left font-semibold text-gray-700 w-24" rowSpan={2}>Duration</th>
             {temps.map((t, i) => (
-              <th key={i} colSpan={2} className={`border border-gray-200 px-2 py-2.5 text-center font-semibold ${TEMP_HEADER_COLORS[i]}`}>
+              <th key={i} colSpan={4} className={`border border-gray-200 px-2 py-2.5 text-center font-semibold ${TEMP_HEADER_COLORS[i]}`}>
                 {t.value}°C
               </th>
             ))}
-            <th className="border border-gray-200 px-2 py-2.5 text-center font-semibold text-gray-700" rowSpan={2}>Spindle #</th>
-            <th className="border border-gray-200 px-2 py-2.5 text-center font-semibold text-gray-700" rowSpan={2}>RPM</th>
-            <th className="border border-gray-200 px-2 py-2.5 text-center font-semibold text-gray-700" rowSpan={2}>
-              Notes <span className="font-normal text-gray-400 text-xs">(click to edit)</span>
-            </th>
+            <th className="border border-gray-200 px-2 py-2.5 text-center font-semibold text-gray-700" rowSpan={2}>Notes</th>
             <th className="border border-gray-200 px-2 py-2.5 w-8" rowSpan={2}></th>
           </tr>
           <tr className="bg-gray-50 text-gray-500">
             {temps.map((_, i) => (
-              <>
-                <th key={`ph-${i}`} className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>pH</th>
-                <th key={`v-${i}`} className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>Viscosity</th>
-              </>
+              <Fragment key={i}>
+                <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>pH</th>
+                <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>Viscosity</th>
+                <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>Spindle #</th>
+                <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>RPM</th>
+              </Fragment>
             ))}
           </tr>
         </thead>
@@ -123,20 +149,35 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes }) 
             const row = byTP[tp]
             return (
               <tr key={tp} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                <td className="border border-gray-200 px-3 py-2 font-medium text-gray-700 cursor-pointer hover:bg-blue-50 transition-colors"
-                  onClick={() => onCellClick(tp)}>
+                <td
+                  className="border border-gray-200 px-3 py-2 font-medium text-gray-700 cursor-pointer hover:bg-blue-50 transition-colors"
+                  onClick={() => onCellClick(tp)}
+                >
                   {TIME_LABELS[tp]}
                   {row && <span className="ml-1.5 text-green-500">●</span>}
                 </td>
-                {temps.map((_, i) => (
-                  <DataCell key={i} tp={tp} suffix={SUFFIXES[i]} tempIdx={i} />
-                ))}
-                <td className="border border-gray-200 px-2 py-2 text-xs text-center text-gray-600">
-                  {row?.spindle || <span className="text-gray-300">—</span>}
-                </td>
-                <td className="border border-gray-200 px-2 py-2 text-xs text-center text-gray-600">
-                  {row?.rpm != null && row?.rpm !== '' ? row.rpm : <span className="text-gray-300">—</span>}
-                </td>
+                {temps.map((t, tempIdx) => {
+                  const suf = SUFFIXES[tempIdx]
+                  const isNA = (t.na_tps || []).includes(tp)
+                  if (isNA) {
+                    return (
+                      <td key={tempIdx} colSpan={4}
+                        className="na-cell border border-gray-200 px-2 py-2 text-center text-gray-300 bg-gray-50">—</td>
+                    )
+                  }
+                  return (
+                    <Fragment key={tempIdx}>
+                      <InlineResultCell value={row?.[`ph_${suf}`]}
+                        onSave={v => onSaveCell(tp, `ph_${suf}`, v)} />
+                      <InlineResultCell value={row?.[`viscosity_${suf}`]}
+                        onSave={v => onSaveCell(tp, `viscosity_${suf}`, v)} />
+                      <InlineResultCell value={row?.[`spindle_${suf}`]} type="text"
+                        onSave={v => onSaveCell(tp, `spindle_${suf}`, v)} />
+                      <InlineResultCell value={row?.[`rpm_${suf}`]}
+                        onSave={v => onSaveCell(tp, `rpm_${suf}`, v)} />
+                    </Fragment>
+                  )
+                })}
                 <NotesCell row={row} timePoint={tp} onSave={onSaveNotes} />
                 <td className="border border-gray-200 px-2 py-2 text-center">
                   {row && (
@@ -394,6 +435,23 @@ export default function SampleDetail() {
     }
   }
 
+  async function handleSaveCellValue(timePoint, field, value) {
+    const existing = sample.results.find(r => r.time_point === timePoint)
+    const numericFields = [
+      'ph_25', 'ph_45', 'ph_50',
+      'viscosity_25', 'viscosity_45', 'viscosity_50',
+      'rpm_25', 'rpm_45', 'rpm_50',
+    ]
+    const toNum = v => (v === '' || v === null || v === undefined) ? null : Number(v)
+    const parsedVal = numericFields.includes(field) ? toNum(value) : (value || null)
+    const base = existing ? { ...existing } : { time_point: timePoint }
+    const r = await upsertResult(id, { ...base, [field]: parsedVal })
+    setSample(prev => ({
+      ...prev,
+      results: [...prev.results.filter(x => x.time_point !== r.time_point), r],
+    }))
+  }
+
   async function handleClearRow(resultId) {
     if (!confirm('Clear this time point data?')) return
     await deleteResult(resultId)
@@ -490,9 +548,10 @@ export default function SampleDetail() {
             onCellClick={tp => setEntry(tp)}
             onClearRow={handleClearRow}
             onSaveNotes={handleSaveNotes}
+            onSaveCell={handleSaveCellValue}
           />
           <p className="text-xs text-gray-400 mt-2">
-            Greyed cells (—) are N/A for that temperature condition · Edit sample to change temperatures or N/A rules
+            Click any cell to edit directly · Greyed cells (—) are N/A · Click row label to open bulk entry form
           </p>
         </div>
       )}
