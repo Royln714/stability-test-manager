@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { getUsers, createUser, updateUser, deleteUser, getAuditLog, changePassword } from '../api'
+import { useState, useEffect, useRef } from 'react'
+import { getUsers, createUser, updateUser, deleteUser, getAuditLog, changePassword, exportBackup, importBackup } from '../api'
 
 const ACTION_LABELS = {
   login: { label: 'Login', color: 'text-green-700 bg-green-50' },
@@ -9,6 +9,7 @@ const ACTION_LABELS = {
   user_updated: { label: 'User updated', color: 'text-amber-700 bg-amber-50' },
   user_deleted: { label: 'User deleted', color: 'text-red-700 bg-red-50' },
   password_changed: { label: 'Password changed', color: 'text-purple-700 bg-purple-50' },
+  backup_restored: { label: 'Backup restored', color: 'text-orange-700 bg-orange-50' },
 }
 
 function Badge({ action }) {
@@ -166,6 +167,9 @@ export default function AdminPanel({ currentUser }) {
   const [loading, setLoading] = useState(true)
   const [userModal, setUserModal] = useState(null)
   const [changePwModal, setChangePwModal] = useState(false)
+  const [backupWorking, setBackupWorking] = useState(false)
+  const [backupMsg, setBackupMsg] = useState(null)
+  const restoreInputRef = useRef()
 
   useEffect(() => {
     Promise.all([getUsers(), getAuditLog()])
@@ -191,6 +195,40 @@ export default function AdminPanel({ currentUser }) {
     setUsers(prev => prev.filter(u => u.id !== user.id))
     const log = await getAuditLog()
     setAuditLog(log)
+  }
+
+  async function handleExport() {
+    setBackupWorking(true); setBackupMsg(null)
+    try {
+      const blob = await exportBackup()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `formulab-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+      setBackupMsg({ ok: true, text: 'Backup downloaded successfully.' })
+    } catch {
+      setBackupMsg({ ok: false, text: 'Export failed. Please try again.' })
+    } finally { setBackupWorking(false) }
+  }
+
+  async function handleRestore(e) {
+    const file = e.target.files[0]
+    e.target.value = ''
+    if (!file) return
+    if (!confirm(`Restore from "${file.name}"?\n\nThis will REPLACE all current data (samples, formulations, users). This cannot be undone.`)) return
+    setBackupWorking(true); setBackupMsg(null)
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      const result = await importBackup(data)
+      setBackupMsg({ ok: true, text: `Restored: ${result.stats.samples} samples, ${result.stats.formulations} formulations, ${result.stats.users} users.` })
+      const [u, a] = await Promise.all([getUsers(), getAuditLog()])
+      setUsers(u); setAuditLog(a)
+    } catch (err) {
+      setBackupMsg({ ok: false, text: err?.response?.data?.error || 'Restore failed. Check the file and try again.' })
+    } finally { setBackupWorking(false) }
   }
 
   const totalUsers = users.length
@@ -239,10 +277,14 @@ export default function AdminPanel({ currentUser }) {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl w-fit">
-        {['users', 'activity'].map(t => (
-          <button key={t}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium capitalize transition-all ${tab === t ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
-            onClick={() => setTab(t)}>{t === 'users' ? '👥 Users' : '📋 Activity Log'}</button>
+        {[
+          { key: 'users', label: '👥 Users' },
+          { key: 'activity', label: '📋 Activity Log' },
+          { key: 'backup', label: '💾 Backup' },
+        ].map(t => (
+          <button key={t.key}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${tab === t.key ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+            onClick={() => setTab(t.key)}>{t.label}</button>
         ))}
       </div>
 
@@ -298,6 +340,33 @@ export default function AdminPanel({ currentUser }) {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {tab === 'backup' && (
+        <div className="card p-6 max-w-xl space-y-6">
+          <div>
+            <h3 className="font-semibold text-gray-900 mb-1">Export Backup</h3>
+            <p className="text-sm text-gray-500 mb-3">Download all samples, formulations, and user accounts as a JSON file. Save this file before migrating to a new server.</p>
+            <button className="btn-primary" onClick={handleExport} disabled={backupWorking}>
+              {backupWorking ? 'Working...' : '⬇ Download Backup'}
+            </button>
+            <p className="text-xs text-amber-600 mt-2">Note: uploaded images are not included in the backup file.</p>
+          </div>
+          <hr className="border-gray-200" />
+          <div>
+            <h3 className="font-semibold text-gray-900 mb-1">Restore from Backup</h3>
+            <p className="text-sm text-gray-500 mb-3">Upload a previously exported backup file to restore all data. This will <strong>replace</strong> all current data.</p>
+            <input ref={restoreInputRef} type="file" accept=".json" className="hidden" onChange={handleRestore} />
+            <button className="btn-danger" onClick={() => restoreInputRef.current.click()} disabled={backupWorking}>
+              ⬆ Restore from File
+            </button>
+          </div>
+          {backupMsg && (
+            <div className={`text-sm px-4 py-3 rounded-xl ${backupMsg.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+              {backupMsg.ok ? '✅ ' : '⚠ '}{backupMsg.text}
+            </div>
+          )}
         </div>
       )}
 
