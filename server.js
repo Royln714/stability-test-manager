@@ -294,6 +294,7 @@ app.get('/api/samples', (req, res) => {
     .map(s => ({
       ...s,
       completed_points: db.results.filter(r => r.sample_id === s.id).length,
+      time_points_done: db.results.filter(r => r.sample_id === s.id).map(r => r.time_point),
       image_count: db.images.filter(i => i.sample_id === s.id).length,
     }));
   res.json(result);
@@ -316,13 +317,17 @@ const DEFAULT_TEMPS = [
 ];
 
 app.post('/api/samples', (req, res) => {
-  const { name, ref_no, date_started, remarks, temp_config } = req.body;
+  const { name, ref_no, date_started, remarks, temp_config, status, spec_ph_min, spec_ph_max, spec_visc_min, spec_visc_max } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Sample name is required' });
   const db = readDB();
+  const toNum = v => (v != null && v !== '') ? Number(v) : null;
   const sample = {
     id: nextId(db, 'samples'),
     name: name.trim(), ref_no: ref_no || '', date_started: date_started || '', remarks: remarks || '',
     temp_config: JSON.stringify(temp_config || DEFAULT_TEMPS),
+    status: status || 'active',
+    spec_ph_min: toNum(spec_ph_min), spec_ph_max: toNum(spec_ph_max),
+    spec_visc_min: toNum(spec_visc_min), spec_visc_max: toNum(spec_visc_max),
     created_at: now(),
   };
   db.samples.push(sample);
@@ -332,18 +337,38 @@ app.post('/api/samples', (req, res) => {
 
 app.put('/api/samples/:id', (req, res) => {
   const id = Number(req.params.id);
-  const { name, ref_no, date_started, remarks, temp_config } = req.body;
+  const { name, ref_no, date_started, remarks, temp_config, spec_ph_min, spec_ph_max, spec_visc_min, spec_visc_max } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Sample name is required' });
   const db = readDB();
   const idx = db.samples.findIndex(s => s.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  const toNum = v => (v != null && v !== '') ? Number(v) : null;
+  const cur = db.samples[idx];
   db.samples[idx] = {
-    ...db.samples[idx], name: name.trim(), ref_no: ref_no || '', date_started: date_started || '', remarks: remarks || '',
+    ...cur, name: name.trim(), ref_no: ref_no || '', date_started: date_started || '', remarks: remarks || '',
     temp_config: JSON.stringify(temp_config || DEFAULT_TEMPS),
+    spec_ph_min: spec_ph_min !== undefined ? toNum(spec_ph_min) : cur.spec_ph_min ?? null,
+    spec_ph_max: spec_ph_max !== undefined ? toNum(spec_ph_max) : cur.spec_ph_max ?? null,
+    spec_visc_min: spec_visc_min !== undefined ? toNum(spec_visc_min) : cur.spec_visc_min ?? null,
+    spec_visc_max: spec_visc_max !== undefined ? toNum(spec_visc_max) : cur.spec_visc_max ?? null,
   };
   writeDB(db);
   const s = db.samples[idx];
   res.json({ ...s, temp_config: JSON.parse(s.temp_config) });
+});
+
+app.patch('/api/samples/:id/status', (req, res) => {
+  const id = Number(req.params.id);
+  const { status } = req.body;
+  if (!['active', 'completed', 'failed', 'on_hold'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status' });
+  }
+  const db = readDB();
+  const sample = db.samples.find(s => s.id === id);
+  if (!sample) return res.status(404).json({ error: 'Not found' });
+  sample.status = status;
+  writeDB(db);
+  res.json(sample);
 });
 
 app.delete('/api/samples/:id', (req, res) => {
@@ -368,6 +393,7 @@ app.post('/api/samples/:id/results', (req, res) => {
     time_point, ph_25, viscosity_25, ph_45, viscosity_45, ph_50, viscosity_50,
     spindle_25, rpm_25, spindle_45, rpm_45, spindle_50, rpm_50,
     notes, measured_at,
+    appearance, color_obs, odor, phase_sep,
   } = req.body;
   if (!time_point) return res.status(400).json({ error: 'time_point required' });
 
@@ -385,6 +411,10 @@ app.post('/api/samples/:id/results', (req, res) => {
     spindle_50: spindle_50 || null, rpm_50: toNum(rpm_50),
     notes: notes || '',
     measured_at: measured_at || today(),
+    appearance: appearance || null,
+    color_obs: color_obs || null,
+    odor: odor || null,
+    phase_sep: phase_sep || null,
   };
 
   let result;
