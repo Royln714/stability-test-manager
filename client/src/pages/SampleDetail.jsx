@@ -13,7 +13,7 @@ const SUFFIXES = ['25', '45', '50']
 const DEFAULT_TEMPS = [
   { value: 25, na_tps: [] },
   { value: 45, na_tps: ['Initial'] },
-  { value: 50, na_tps: ['Initial', '2_weeks'] },
+  { value: 50, na_tps: ['Initial'] },
 ]
 const TEMP_HEADER_COLORS = ['bg-blue-50 text-blue-700', 'bg-amber-50 text-amber-700', 'bg-red-50 text-red-700']
 
