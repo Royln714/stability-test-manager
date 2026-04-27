@@ -19,7 +19,7 @@ function NumInput({ label, value, onChange }) {
 export default function DataEntryModal({ timePoint, existing, temps, onSave, onClose }) {
   const [form, setForm] = useState({
     ph_25: '', viscosity_25: '', ph_45: '', viscosity_45: '',
-    ph_50: '', viscosity_50: '', notes: '',
+    ph_50: '', viscosity_50: '', spindle: '', rpm: '', notes: '',
     measured_at: new Date().toISOString().split('T')[0],
   })
   const [saving, setSaving] = useState(false)
@@ -31,6 +31,7 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
         ph_25: existing.ph_25 ?? '', viscosity_25: existing.viscosity_25 ?? '',
         ph_45: existing.ph_45 ?? '', viscosity_45: existing.viscosity_45 ?? '',
         ph_50: existing.ph_50 ?? '', viscosity_50: existing.viscosity_50 ?? '',
+        spindle: existing.spindle || '', rpm: existing.rpm ?? '',
         notes: existing.notes || '',
         measured_at: existing.measured_at || new Date().toISOString().split('T')[0],
       })
@@ -92,6 +93,22 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
               </div>
             )
           })}
+
+          <div className="rounded-xl border border-gray-200 p-3 bg-gray-50/50">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Viscometer Settings</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Spindle #</label>
+                <input className="input" value={form.spindle}
+                  onChange={e => set('spindle', e.target.value)} placeholder="e.g. SC4-25" />
+              </div>
+              <div>
+                <label className="label">RPM</label>
+                <input type="number" step="0.1" className="input" value={form.rpm}
+                  onChange={e => set('rpm', e.target.value)} placeholder="e.g. 10" />
+              </div>
+            </div>
+          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
