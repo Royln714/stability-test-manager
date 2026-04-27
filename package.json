@@ -1,0 +1,19 @@
+{
+  "name": "stability-test-app",
+  "version": "1.0.0",
+  "description": "Stability Test Result Management System",
+  "scripts": {
+    "dev": "concurrently --names \"server,client\" -c \"cyan,green\" \"node server.js\" \"npm run dev --prefix client\"",
+    "setup": "npm install && npm install --prefix client",
+    "start": "node server.js",
+    "build": "npm run build --prefix client"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
