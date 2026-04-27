@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { getFormulation, updateFormulation, uploadLogo, uploadRefImage, getSamples } from '../api'
 import { generateFormulationPDF } from '../pdfReport'
+import { searchIngredients } from '../ingredientDB'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,95 @@ function EditCell({ value, onChange, type = 'text', placeholder = '', className 
       title="Click to edit"
     >
       {val || <span className="text-gray-300 italic">{placeholder}</span>}
+    </div>
+  )
+}
+
+// ── Autocomplete cell for Trade Name ─────────────────────────────────────────
+
+function AutocompleteCell({ row, onUpdate }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(row.trade_name ?? '')
+  const [suggestions, setSuggestions] = useState([])
+  const wrapperRef = useRef(null)
+
+  useEffect(() => { setVal(row.trade_name ?? '') }, [row.trade_name])
+
+  function handleInput(e) {
+    const v = e.target.value
+    setVal(v)
+    if (v.trim().length >= 2) {
+      const results = searchIngredients(v)
+      setSuggestions(results)
+    } else {
+      setSuggestions([])
+    }
+  }
+
+  function commit() {
+    setEditing(false)
+    setSuggestions([])
+    if (val !== (row.trade_name ?? '')) onUpdate('trade_name', val)
+  }
+
+  function selectSuggestion(item) {
+    setVal(item.trade_name)
+    setSuggestions([])
+    setEditing(false)
+    onUpdate('trade_name', item.trade_name)
+    onUpdate('inci_name', item.inci || '')
+    onUpdate('cas_no', item.cas || '')
+    if (!row.supplier && item.supplier) onUpdate('supplier', item.supplier)
+    if (!row.function && item.function) onUpdate('function', item.function)
+  }
+
+  useEffect(() => {
+    function onOutside(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) commit()
+    }
+    if (editing) document.addEventListener('mousedown', onOutside)
+    return () => document.removeEventListener('mousedown', onOutside)
+  }, [editing, val, row.trade_name])
+
+  if (!editing) {
+    return (
+      <div
+        className="min-h-[22px] px-1.5 py-0.5 text-xs cursor-text hover:bg-blue-50 rounded transition-colors"
+        onClick={() => setEditing(true)}
+        title="Click to edit"
+      >
+        {val || <span className="text-gray-300 italic">Trade name...</span>}
+      </div>
+    )
+  }
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <input
+        autoFocus
+        className="w-full px-1.5 py-0.5 text-xs border border-blue-400 rounded focus:outline-none"
+        value={val}
+        onChange={handleInput}
+        onKeyDown={e => {
+          if (e.key === 'Enter') commit()
+          if (e.key === 'Escape') { setEditing(false); setSuggestions([]); setVal(row.trade_name ?? '') }
+        }}
+      />
+      {suggestions.length > 0 && (
+        <div className="absolute left-0 top-full mt-0.5 z-50 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[280px] max-h-48 overflow-y-auto">
+          {suggestions.map((item, i) => (
+            <button
+              key={i}
+              type="button"
+              className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 border-b border-gray-100 last:border-0"
+              onMouseDown={e => { e.preventDefault(); selectSuggestion(item) }}
+            >
+              <div className="font-medium text-gray-800">{item.trade_name}</div>
+              <div className="text-gray-400">{item.inci}{item.cas ? ` · ${item.cas}` : ''}</div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -115,7 +205,7 @@ function IngredientsTable({ rows, bulkSize, onChange }) {
                 <EditCell value={row.part} onChange={v => update(row.id, 'part', v)} placeholder="A" align="center" />
               </td>
               <td className="border border-gray-300 px-1 py-1">
-                <EditCell value={row.trade_name} onChange={v => update(row.id, 'trade_name', v)} placeholder="Trade name..." />
+                <AutocompleteCell row={row} onUpdate={(field, val) => update(row.id, field, val)} />
               </td>
               <td className="border border-gray-300 px-1 py-1">
                 <EditCell value={row.inci_name} onChange={v => update(row.id, 'inci_name', v)} placeholder="INCI name..." />
