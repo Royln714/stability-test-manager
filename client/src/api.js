@@ -95,3 +95,11 @@ export const uploadRefImage = (id, file) => {
   const fd = new FormData(); fd.append('image', file)
   return api.post(`/formulations/${id}/refimage`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
 }
+
+// ── Backup ────────────────────────────────────────────────────────────────────
+
+export const exportBackup = () =>
+  api.get('/backup/export', { responseType: 'blob' }).then(r => r.data)
+
+export const importBackup = data =>
+  api.post('/backup/import', data).then(r => r.data)
