@@ -533,6 +533,50 @@ app.post('/api/formulations/:id/refimage', upload.single('image'), (req, res) =>
   res.json({ filename: req.file.filename });
 });
 
+// ── BACKUP / RESTORE ──────────────────────────────────────────────────────────
+
+app.get('/api/backup/export', requireAdmin, (req, res) => {
+  const db = readDB();
+  const backup = {
+    version: 1,
+    app: 'FormuLab Hub',
+    exported_at: new Date().toISOString(),
+    samples: db.samples,
+    results: db.results,
+    images: db.images,
+    formulations: db.formulations,
+    users: db.users,
+    _counters: db._counters,
+  };
+  const filename = `formulab-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Type', 'application/json');
+  res.send(JSON.stringify(backup, null, 2));
+});
+
+app.post('/api/backup/import', requireAdmin, express.json({ limit: '50mb' }), (req, res) => {
+  const { version, samples, results, images, formulations, users, _counters } = req.body;
+  if (!version || !Array.isArray(samples) || !Array.isArray(formulations)) {
+    return res.status(400).json({ error: 'Invalid or unrecognised backup file' });
+  }
+  if (!Array.isArray(users) || !users.some(u => u.role === 'admin' && u.is_active)) {
+    return res.status(400).json({ error: 'Backup must contain at least one active admin user' });
+  }
+  const db = readDB();
+  db.samples = samples;
+  db.results = results || [];
+  db.images = images || [];
+  db.formulations = formulations;
+  db.users = users;
+  if (_counters) db._counters = _counters;
+  logAudit(db, req.user.id, req.user.username, 'backup_restored', req.ip || '', 'Data restored from backup');
+  writeDB(db);
+  res.json({
+    success: true,
+    stats: { samples: db.samples.length, formulations: db.formulations.length, users: db.users.length },
+  });
+});
+
 // ── Production static serve ───────────────────────────────────────────────────
 
 if (process.env.NODE_ENV === 'production') {
