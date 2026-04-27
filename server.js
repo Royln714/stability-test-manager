@@ -403,7 +403,7 @@ app.get('/api/samples/:id', (req, res) => {
 const DEFAULT_TEMPS = [
   { value: 25, na_tps: [] },
   { value: 45, na_tps: ['Initial'] },
-  { value: 50, na_tps: ['Initial', '2_weeks'] },
+  { value: 50, na_tps: ['Initial'] },
 ];
 
 app.post('/api/samples', (req, res) => {
