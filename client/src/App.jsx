@@ -6,6 +6,7 @@ import Formulations from './pages/Formulations'
 import FormulationSheet from './pages/FormulationSheet'
 import AdminPanel from './pages/AdminPanel'
 import LoginPage from './pages/LoginPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import { getMe, logout } from './api'
 
 function Navbar({ user, onLogout }) {
@@ -60,6 +61,7 @@ function Navbar({ user, onLogout }) {
 export default function App() {
   const [user, setUser] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
+  const loc = useLocation()
 
   useEffect(() => {
     getMe()
@@ -71,6 +73,10 @@ export default function App() {
   async function handleLogout() {
     try { await logout() } catch {}
     setUser(null)
+  }
+
+  if (loc.pathname === '/reset-password') {
+    return <ResetPasswordPage />
   }
 
   if (authLoading) {
