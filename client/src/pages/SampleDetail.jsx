@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { getSample, updateSample, upsertResult, deleteResult, uploadImage, updateImageCaption, deleteImage, getFormulations } from '../api'
+import { getSample, updateSample, updateSampleStatus, upsertResult, deleteResult, uploadImage, updateImageCaption, deleteImage, getFormulations } from '../api'
 import DataEntryModal from '../components/DataEntryModal'
 import Charts from '../components/Charts'
 import { generatePDF } from '../pdfReport'
@@ -16,6 +16,13 @@ const DEFAULT_TEMPS = [
   { value: 50, na_tps: ['Initial', '2_weeks'] },
 ]
 const TEMP_HEADER_COLORS = ['bg-blue-50 text-blue-700', 'bg-amber-50 text-amber-700', 'bg-red-50 text-red-700']
+
+const STATUS_CFG = {
+  active:    { label: 'Active',    color: 'bg-blue-100 text-blue-700' },
+  completed: { label: 'Completed', color: 'bg-green-100 text-green-700' },
+  failed:    { label: 'Failed',    color: 'bg-red-100 text-red-700' },
+  on_hold:   { label: 'On Hold',   color: 'bg-amber-100 text-amber-700' },
+}
 const TEMP_SUBHEADER = ['bg-blue-50/50', 'bg-amber-50/50', 'bg-red-50/50']
 const fmt = v => (v === null || v === undefined || v === '') ? null : Number(v).toFixed(2)
 
@@ -68,7 +75,17 @@ function NotesCell({ row, timePoint, onSave }) {
 
 // ── Inline Editable Result Cell ───────────────────────────────────────────────
 
-function InlineResultCell({ value, onSave, type = 'number' }) {
+function specClass(value, min, max) {
+  if (value === null || value === undefined || value === '') return ''
+  const n = Number(value)
+  if ((min !== null && min !== undefined && n < min) || (max !== null && max !== undefined && n > max))
+    return 'bg-red-50 text-red-700'
+  if (min !== null && min !== undefined || max !== null && max !== undefined)
+    return 'bg-green-50 text-green-700'
+  return ''
+}
+
+function InlineResultCell({ value, onSave, type = 'number', specMin, specMax }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(value ?? '')
   useEffect(() => { setVal(value ?? '') }, [value])
@@ -80,6 +97,7 @@ function InlineResultCell({ value, onSave, type = 'number' }) {
 
   const display = type === 'number' && value !== null && value !== undefined && value !== ''
     ? Number(value).toFixed(2) : value
+  const sc = type === 'number' ? specClass(value, specMin, specMax) : ''
 
   if (editing) {
     return (
@@ -103,7 +121,7 @@ function InlineResultCell({ value, onSave, type = 'number' }) {
   }
   return (
     <td
-      className="border border-gray-200 px-2 py-2 text-xs text-center cursor-pointer hover:bg-blue-50 transition-colors font-medium"
+      className={`border border-gray-200 px-2 py-2 text-xs text-center cursor-pointer transition-colors font-medium ${sc || 'hover:bg-blue-50'}`}
       onClick={() => setEditing(true)}
       title="Click to edit"
     >
@@ -116,7 +134,36 @@ function InlineResultCell({ value, onSave, type = 'number' }) {
 
 // ── Results Table ─────────────────────────────────────────────────────────────
 
-function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, onSaveCell }) {
+function OrganoCell({ row, field, timePoint, onSave, placeholder = '' }) {
+  const [editing, setEditing] = useState(false)
+  const [val, setVal] = useState(row?.[field] || '')
+  useEffect(() => { setVal(row?.[field] || '') }, [row?.[field]])
+
+  function commit() {
+    setEditing(false)
+    if (val !== (row?.[field] || '')) onSave(timePoint, field, val)
+  }
+
+  if (editing) {
+    return (
+      <td className="border border-gray-200 px-1 py-0.5 min-w-[80px]">
+        <input autoFocus className="w-full text-xs px-1 py-1 border border-purple-400 rounded focus:outline-none"
+          value={val} onChange={e => setVal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setEditing(false); setVal(row?.[field] || '') } }}
+          placeholder={placeholder} />
+      </td>
+    )
+  }
+  return (
+    <td className="border border-gray-200 px-2 py-2 text-xs text-center cursor-pointer hover:bg-purple-50 transition-colors"
+      onClick={() => setEditing(true)} title="Click to edit">
+      {val || <span className="text-gray-300">+</span>}
+    </td>
+  )
+}
+
+function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, onSaveCell, specPhMin, specPhMax, specViscMin, specViscMax }) {
   const byTP = Object.fromEntries(results.map(r => [r.time_point, r]))
 
   return (
@@ -130,6 +177,7 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, on
                 {t.value}°C
               </th>
             ))}
+            <th colSpan={4} className="border border-gray-200 px-2 py-2.5 text-center font-semibold bg-purple-50 text-purple-700">Organoleptic</th>
             <th className="border border-gray-200 px-2 py-2.5 text-center font-semibold text-gray-700" rowSpan={2}>Notes</th>
             <th className="border border-gray-200 px-2 py-2.5 w-8" rowSpan={2}></th>
           </tr>
@@ -142,6 +190,10 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, on
                 <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>RPM</th>
               </Fragment>
             ))}
+            <th className="border border-gray-200 px-2 py-1.5 text-center font-medium bg-purple-50/50">Appearance</th>
+            <th className="border border-gray-200 px-2 py-1.5 text-center font-medium bg-purple-50/50">Color</th>
+            <th className="border border-gray-200 px-2 py-1.5 text-center font-medium bg-purple-50/50">Odor</th>
+            <th className="border border-gray-200 px-2 py-1.5 text-center font-medium bg-purple-50/50">Phase Sep</th>
           </tr>
         </thead>
         <tbody>
@@ -168,9 +220,11 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, on
                   return (
                     <Fragment key={tempIdx}>
                       <InlineResultCell value={row?.[`ph_${suf}`]}
-                        onSave={v => onSaveCell(tp, `ph_${suf}`, v)} />
+                        onSave={v => onSaveCell(tp, `ph_${suf}`, v)}
+                        specMin={specPhMin} specMax={specPhMax} />
                       <InlineResultCell value={row?.[`viscosity_${suf}`]}
-                        onSave={v => onSaveCell(tp, `viscosity_${suf}`, v)} />
+                        onSave={v => onSaveCell(tp, `viscosity_${suf}`, v)}
+                        specMin={specViscMin} specMax={specViscMax} />
                       <InlineResultCell value={row?.[`spindle_${suf}`]} type="text"
                         onSave={v => onSaveCell(tp, `spindle_${suf}`, v)} />
                       <InlineResultCell value={row?.[`rpm_${suf}`]}
@@ -178,6 +232,10 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, on
                     </Fragment>
                   )
                 })}
+                <OrganoCell row={row} field="appearance" timePoint={tp} onSave={onSaveCell} placeholder="e.g. Clear" />
+                <OrganoCell row={row} field="color_obs"   timePoint={tp} onSave={onSaveCell} placeholder="e.g. White" />
+                <OrganoCell row={row} field="odor"        timePoint={tp} onSave={onSaveCell} placeholder="e.g. Normal" />
+                <OrganoCell row={row} field="phase_sep"   timePoint={tp} onSave={onSaveCell} placeholder="None" />
                 <NotesCell row={row} timePoint={tp} onSave={onSaveNotes} />
                 <td className="border border-gray-200 px-2 py-2 text-center">
                   {row && (
@@ -337,6 +395,8 @@ function EditSampleModal({ sample, onClose, onSave }) {
   const [form, setForm] = useState({
     name: sample.name, ref_no: sample.ref_no || '',
     date_started: sample.date_started || '', remarks: sample.remarks || '',
+    spec_ph_min: sample.spec_ph_min ?? '', spec_ph_max: sample.spec_ph_max ?? '',
+    spec_visc_min: sample.spec_visc_min ?? '', spec_visc_max: sample.spec_visc_max ?? '',
   })
   const [temps, setTemps] = useState(parseTempConfig(sample.temp_config))
   const [saving, setSaving] = useState(false)
@@ -365,6 +425,32 @@ function EditSampleModal({ sample, onClose, onSave }) {
           </div>
           <div><label className="label">Remarks</label>
             <textarea className="input resize-none" rows={2} value={form.remarks} onChange={e => setForm(f => ({ ...f, remarks: e.target.value }))} /></div>
+
+          <div>
+            <label className="label mb-2">Spec Limits (optional — cells turn red/green automatically)</label>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label text-xs text-gray-400">pH Min</label>
+                <input type="number" step="any" className="input" placeholder="e.g. 5.0"
+                  value={form.spec_ph_min} onChange={e => setForm(f => ({ ...f, spec_ph_min: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label text-xs text-gray-400">pH Max</label>
+                <input type="number" step="any" className="input" placeholder="e.g. 7.0"
+                  value={form.spec_ph_max} onChange={e => setForm(f => ({ ...f, spec_ph_max: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label text-xs text-gray-400">Viscosity Min (cP)</label>
+                <input type="number" step="any" className="input" placeholder="e.g. 5000"
+                  value={form.spec_visc_min} onChange={e => setForm(f => ({ ...f, spec_visc_min: e.target.value }))} />
+              </div>
+              <div>
+                <label className="label text-xs text-gray-400">Viscosity Max (cP)</label>
+                <input type="number" step="any" className="input" placeholder="e.g. 15000"
+                  value={form.spec_visc_max} onChange={e => setForm(f => ({ ...f, spec_visc_max: e.target.value }))} />
+              </div>
+            </div>
+          </div>
 
           <div>
             <label className="label mb-2">Temperature Conditions</label>
@@ -458,6 +544,11 @@ export default function SampleDetail() {
     setSample(prev => ({ ...prev, results: prev.results.filter(r => r.id !== resultId) }))
   }
 
+  async function handleStatusChange(status) {
+    const updated = await updateSampleStatus(id, status)
+    setSample(prev => ({ ...prev, status: updated.status }))
+  }
+
   async function handleGeneratePDF() {
     setGenPDF(true)
     try { await generatePDF({ ...sample, temps }) }
@@ -496,9 +587,15 @@ export default function SampleDetail() {
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-xl font-bold text-gray-900">{sample.name}</h1>
               {sample.ref_no && <span className="text-xs font-mono bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{sample.ref_no}</span>}
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${pct === 100 ? 'bg-green-100 text-green-700' : pct > 0 ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}`}>
-                {pct === 100 ? 'Complete' : pct > 0 ? 'In Progress' : 'Pending'}
-              </span>
+              <select
+                className={`text-xs font-medium px-2 py-0.5 rounded-full border-0 cursor-pointer ${STATUS_CFG[sample.status || 'active'].color}`}
+                value={sample.status || 'active'}
+                onChange={e => handleStatusChange(e.target.value)}
+              >
+                {Object.entries(STATUS_CFG).map(([k, v]) => (
+                  <option key={k} value={k}>{v.label}</option>
+                ))}
+              </select>
             </div>
             <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-500">
               {sample.date_started && <span>📅 {sample.date_started}</span>}
@@ -549,6 +646,8 @@ export default function SampleDetail() {
             onClearRow={handleClearRow}
             onSaveNotes={handleSaveNotes}
             onSaveCell={handleSaveCellValue}
+            specPhMin={sample.spec_ph_min} specPhMax={sample.spec_ph_max}
+            specViscMin={sample.spec_visc_min} specViscMax={sample.spec_visc_max}
           />
           <p className="text-xs text-gray-400 mt-2">
             Click any cell to edit directly · Greyed cells (—) are N/A · Click row label to open bulk entry form
@@ -586,6 +685,9 @@ export default function SampleDetail() {
               onCellClick={tp => { setTab('Data'); setEntry(tp) }}
               onClearRow={handleClearRow}
               onSaveNotes={handleSaveNotes}
+              onSaveCell={handleSaveCellValue}
+              specPhMin={sample.spec_ph_min} specPhMax={sample.spec_ph_max}
+              specViscMin={sample.spec_visc_min} specViscMax={sample.spec_visc_max}
             />
           </div>
         </div>
