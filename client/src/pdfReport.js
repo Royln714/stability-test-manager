@@ -182,7 +182,7 @@ export async function generatePDF(sample) {
     doc.setFontSize(7)
     doc.setTextColor(160, 160, 160)
     doc.setFont('helvetica', 'normal')
-    doc.text(`Stability Test Manager · ${sample.name}`, margin, pageH - 6)
+    doc.text(`FormuLab Hub · ${sample.name}`, margin, pageH - 6)
     doc.text(`Page ${i} of ${totalPages}`, pageW - margin, pageH - 6, { align: 'right' })
   }
 
