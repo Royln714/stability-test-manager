@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { getFormulation, updateFormulation, uploadLogo, uploadRefImage } from '../api'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { getFormulation, updateFormulation, uploadLogo, uploadRefImage, getSamples } from '../api'
 import { generateFormulationPDF } from '../pdfReport'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -63,12 +63,12 @@ function IngredientsTable({ rows, bulkSize, onChange }) {
 
   function addRow() {
     const lastPart = rows.length ? rows[rows.length - 1].part : 'A'
-    onChange([...rows, { id: uid(), part: lastPart, trade_name: '', inci_name: '', percent: '', supplier: '', function: '' }])
+    onChange([...rows, { id: uid(), part: lastPart, trade_name: '', inci_name: '', cas_no: '', percent: '', supplier: '', function: '', compliance: '' }])
   }
 
   function addRowAfter(idx) {
     const next = [...rows]
-    next.splice(idx + 1, 0, { id: uid(), part: rows[idx]?.part || 'A', trade_name: '', inci_name: '', percent: '', supplier: '', function: '' })
+    next.splice(idx + 1, 0, { id: uid(), part: rows[idx]?.part || 'A', trade_name: '', inci_name: '', cas_no: '', percent: '', supplier: '', function: '', compliance: '' })
     onChange(next)
   }
 
@@ -96,12 +96,14 @@ function IngredientsTable({ rows, bulkSize, onChange }) {
             <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-gray-700 w-10">Part</th>
             <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700 w-32">Trade Name</th>
             <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700">INCI Name</th>
+            <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700 w-24">CAS No.</th>
             <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-gray-700 w-14">%</th>
             <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-gray-700 w-20">
               Bulk ({parseFloat(bulkSize) > 0 ? `${bulkSize}g` : 'g'})
             </th>
             <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700 w-28">Principal</th>
             <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700">Function</th>
+            <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700 w-28">Compliance</th>
             <th className="border border-gray-300 px-1 py-2 w-16 text-center text-gray-400 font-normal no-print">Actions</th>
           </tr>
         </thead>
@@ -119,6 +121,9 @@ function IngredientsTable({ rows, bulkSize, onChange }) {
                 <EditCell value={row.inci_name} onChange={v => update(row.id, 'inci_name', v)} placeholder="INCI name..." />
               </td>
               <td className="border border-gray-300 px-1 py-1">
+                <EditCell value={row.cas_no} onChange={v => update(row.id, 'cas_no', v)} placeholder="e.g. 7732-18-5" />
+              </td>
+              <td className="border border-gray-300 px-1 py-1">
                 <EditCell value={row.percent} onChange={v => update(row.id, 'percent', v)} type="number" placeholder="0.00" align="right" />
               </td>
               <td className="border border-gray-300 px-2 py-1 text-right text-gray-600 bg-blue-50/30">
@@ -129,6 +134,9 @@ function IngredientsTable({ rows, bulkSize, onChange }) {
               </td>
               <td className="border border-gray-300 px-1 py-1">
                 <EditCell value={row.function} onChange={v => update(row.id, 'function', v)} placeholder="Function..." />
+              </td>
+              <td className="border border-gray-300 px-1 py-1">
+                <EditCell value={row.compliance} onChange={v => update(row.id, 'compliance', v)} placeholder="e.g. EU, ASEAN..." />
               </td>
               <td className="border border-gray-300 px-1 py-1 no-print">
                 <div className="flex items-center justify-center gap-0.5">
@@ -142,14 +150,14 @@ function IngredientsTable({ rows, bulkSize, onChange }) {
           ))}
           {/* Total row */}
           <tr className="bg-gray-100 font-semibold">
-            <td colSpan={4} className="border border-gray-300 px-2 py-1.5 text-right text-xs text-gray-600">Total</td>
+            <td colSpan={5} className="border border-gray-300 px-2 py-1.5 text-right text-xs text-gray-600">Total</td>
             <td className={`border border-gray-300 px-2 py-1.5 text-right text-xs ${Math.abs(total - 100) < 0.01 ? 'text-green-700' : total > 100 ? 'text-red-600' : 'text-amber-600'}`}>
               {total.toFixed(2)}%
             </td>
             <td className="border border-gray-300 px-2 py-1.5 text-right text-xs text-gray-600">
               {parseFloat(bulkSize) > 0 ? `${(total / 100 * parseFloat(bulkSize)).toFixed(2)}g` : '—'}
             </td>
-            <td colSpan={3} className="border border-gray-300" />
+            <td colSpan={4} className="border border-gray-300" />
           </tr>
         </tbody>
       </table>
@@ -256,6 +264,7 @@ export default function FormulationSheet() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [form, setForm] = useState(null)
+  const [samples, setSamples] = useState([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [genPDF, setGenPDF] = useState(false)
@@ -263,6 +272,7 @@ export default function FormulationSheet() {
 
   useEffect(() => {
     getFormulation(id).then(setForm).catch(() => navigate('/formulations'))
+    getSamples().then(setSamples).catch(() => {})
   }, [id])
 
   const autoSave = useCallback((data) => {
@@ -358,11 +368,29 @@ export default function FormulationSheet() {
                 onChange={e => update('description', e.target.value)} placeholder="Product description..." />
             </div>
           </div>
-          <div>
-            <label className="label">Batch / Bulk Size (g)</label>
-            <input className="input" type="number" value={form.bulk_size}
-              onChange={e => update('bulk_size', e.target.value)} placeholder="e.g. 1000" />
-            <p className="text-xs text-gray-400 mt-1">Used to calculate per-ingredient weight</p>
+          <div className="space-y-3">
+            <div>
+              <label className="label">Batch / Bulk Size (g)</label>
+              <input className="input" type="number" value={form.bulk_size}
+                onChange={e => update('bulk_size', e.target.value)} placeholder="e.g. 1000" />
+              <p className="text-xs text-gray-400 mt-1">Used to calculate per-ingredient weight</p>
+            </div>
+            <div>
+              <label className="label">Linked Stability Test</label>
+              <select className="input" value={form.linked_sample_id || ''}
+                onChange={e => update('linked_sample_id', e.target.value ? Number(e.target.value) : null)}>
+                <option value="">— None —</option>
+                {samples.map(s => (
+                  <option key={s.id} value={s.id}>{s.name}{s.ref_no ? ` (${s.ref_no})` : ''}</option>
+                ))}
+              </select>
+              {form.linked_sample_id && (
+                <Link to={`/samples/${form.linked_sample_id}`}
+                  className="text-xs text-blue-600 hover:underline mt-1 inline-block">
+                  View stability test →
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       </div>
