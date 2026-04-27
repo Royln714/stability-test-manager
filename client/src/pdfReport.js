@@ -3,7 +3,7 @@ import autoTable from 'jspdf-autotable'
 
 const TIME_POINTS = ['Initial', '2_weeks', '1_month', '2_months', '3_months']
 const TIME_LABELS = { Initial: 'Initial', '2_weeks': '2 Weeks', '1_month': '1 Month', '2_months': '2 Months', '3_months': '3 Months' }
-const NA_CELLS = { 45: ['Initial'], 50: ['Initial', '2_weeks'] }
+const NA_CELLS = { 45: ['Initial'], 50: ['Initial'] }
 const isNA = (temp, tp) => (NA_CELLS[temp] || []).includes(tp)
 const fmt = v => (v === null || v === undefined || v === '') ? '' : Number(v).toFixed(2)
 const NA_FILL = [220, 220, 220]
@@ -71,7 +71,7 @@ export async function generatePDF(sample) {
   const pdfTemps = sample.temps || [
     { value: 25, na_tps: [] },
     { value: 45, na_tps: ['Initial'] },
-    { value: 50, na_tps: ['Initial', '2_weeks'] },
+    { value: 50, na_tps: ['Initial'] },
   ]
   const PDF_SUFFIXES = ['25', '45', '50']
   const TEMP_FILLS = [BLUE_FILL, AMBER_FILL, RED_FILL]
