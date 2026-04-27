@@ -37,3 +37,30 @@ export const updateImageCaption = (id, caption) =>
 
 export const deleteImage = id =>
   api.delete(`/images/${id}`).then(r => r.data)
+
+// ── Formulations ──────────────────────────────────────────────────────────────
+
+export const getFormulations = () =>
+  api.get('/formulations').then(r => r.data)
+
+export const getFormulation = id =>
+  api.get(`/formulations/${id}`).then(r => r.data)
+
+export const createFormulation = data =>
+  api.post('/formulations', data).then(r => r.data)
+
+export const updateFormulation = (id, data) =>
+  api.put(`/formulations/${id}`, data).then(r => r.data)
+
+export const deleteFormulation = id =>
+  api.delete(`/formulations/${id}`).then(r => r.data)
+
+export const uploadLogo = (id, file) => {
+  const fd = new FormData(); fd.append('image', file)
+  return api.post(`/formulations/${id}/logo`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
+}
+
+export const uploadRefImage = (id, file) => {
+  const fd = new FormData(); fd.append('image', file)
+  return api.post(`/formulations/${id}/refimage`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
+}
