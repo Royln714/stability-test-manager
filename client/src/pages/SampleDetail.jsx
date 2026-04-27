@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { getSample, updateSample, upsertResult, deleteResult, uploadImage, updateImageCaption, deleteImage } from '../api'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { getSample, updateSample, upsertResult, deleteResult, uploadImage, updateImageCaption, deleteImage, getFormulations } from '../api'
 import DataEntryModal from '../components/DataEntryModal'
 import Charts from '../components/Charts'
 import { generatePDF } from '../pdfReport'
@@ -102,6 +102,8 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes }) 
                 {t.value}°C
               </th>
             ))}
+            <th className="border border-gray-200 px-2 py-2.5 text-center font-semibold text-gray-700" rowSpan={2}>Spindle #</th>
+            <th className="border border-gray-200 px-2 py-2.5 text-center font-semibold text-gray-700" rowSpan={2}>RPM</th>
             <th className="border border-gray-200 px-2 py-2.5 text-center font-semibold text-gray-700" rowSpan={2}>
               Notes <span className="font-normal text-gray-400 text-xs">(click to edit)</span>
             </th>
@@ -129,6 +131,12 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes }) 
                 {temps.map((_, i) => (
                   <DataCell key={i} tp={tp} suffix={SUFFIXES[i]} tempIdx={i} />
                 ))}
+                <td className="border border-gray-200 px-2 py-2 text-xs text-center text-gray-600">
+                  {row?.spindle || <span className="text-gray-300">—</span>}
+                </td>
+                <td className="border border-gray-200 px-2 py-2 text-xs text-center text-gray-600">
+                  {row?.rpm != null && row?.rpm !== '' ? row.rpm : <span className="text-gray-300">—</span>}
+                </td>
                 <NotesCell row={row} timePoint={tp} onSave={onSaveNotes} />
                 <td className="border border-gray-200 px-2 py-2 text-center">
                   {row && (
@@ -345,6 +353,7 @@ export default function SampleDetail() {
   const [entry, setEntry] = useState(null)
   const [editOpen, setEditOpen] = useState(false)
   const [genPDF, setGenPDF] = useState(false)
+  const [linkedFormulation, setLinkedFormulation] = useState(null)
 
   const load = async () => {
     try { setSample(await getSample(id)) }
@@ -353,6 +362,13 @@ export default function SampleDetail() {
   }
 
   useEffect(() => { load() }, [id])
+
+  useEffect(() => {
+    getFormulations().then(fmts => {
+      const linked = fmts.find(f => f.linked_sample_id === Number(id))
+      setLinkedFormulation(linked || null)
+    }).catch(() => {})
+  }, [id])
 
   const temps = sample ? parseTempConfig(sample.temp_config) : DEFAULT_TEMPS
 
@@ -433,6 +449,12 @@ export default function SampleDetail() {
               <span>📸 {sample.images.length} images</span>
             </div>
             {sample.remarks && <p className="mt-1 text-sm text-gray-500 italic">"{sample.remarks}"</p>}
+            {linkedFormulation && (
+              <Link to={`/formulations/${linkedFormulation.id}`}
+                className="inline-flex items-center gap-1.5 mt-1.5 text-xs text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-0.5 rounded-full hover:bg-purple-100 transition-colors">
+                📋 Formulation: {linkedFormulation.product_name || 'View Sheet'} →
+              </Link>
+            )}
           </div>
           <button className="btn-secondary text-xs py-1.5 shrink-0" onClick={() => setEditOpen(true)}>Edit</button>
         </div>
