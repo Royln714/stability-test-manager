@@ -14,7 +14,7 @@ export default function Formulations() {
   async function handleNew() {
     const f = await createFormulation({
       product_name: 'New Formulation',
-      ingredients: [{ id: 1, part: 'A', trade_name: '', inci_name: '', percent: '', supplier: '', function: '' }],
+      ingredients: [{ id: 1, part: 'A', trade_name: '', inci_name: '', cas_no: '', percent: '', supplier: '', function: '', compliance: '' }],
       procedure: [{ id: 1, text: '' }],
       specifications: [
         { id: 1, property: 'Appearance', value: '' },
