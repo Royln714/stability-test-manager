@@ -6,20 +6,32 @@ const TIME_LABELS = {
 }
 const SUFFIXES = ['25', '45', '50']
 
-function NumInput({ label, value, onChange }) {
+function NumInput({ label, value, onChange, placeholder = '0.00' }) {
   return (
     <div>
       <label className="label">{label}</label>
-      <input type="number" step="0.01" className="input" value={value}
-        onChange={e => onChange(e.target.value)} placeholder="0.00" />
+      <input type="number" step="any" className="input" value={value}
+        onChange={e => onChange(e.target.value)} placeholder={placeholder} />
+    </div>
+  )
+}
+
+function TextInput({ label, value, onChange, placeholder = '' }) {
+  return (
+    <div>
+      <label className="label">{label}</label>
+      <input className="input" value={value}
+        onChange={e => onChange(e.target.value)} placeholder={placeholder} />
     </div>
   )
 }
 
 export default function DataEntryModal({ timePoint, existing, temps, onSave, onClose }) {
   const [form, setForm] = useState({
-    ph_25: '', viscosity_25: '', ph_45: '', viscosity_45: '',
-    ph_50: '', viscosity_50: '', spindle: '', rpm: '', notes: '',
+    ph_25: '', viscosity_25: '', spindle_25: '', rpm_25: '',
+    ph_45: '', viscosity_45: '', spindle_45: '', rpm_45: '',
+    ph_50: '', viscosity_50: '', spindle_50: '', rpm_50: '',
+    notes: '',
     measured_at: new Date().toISOString().split('T')[0],
   })
   const [saving, setSaving] = useState(false)
@@ -29,9 +41,11 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
     if (existing) {
       setForm({
         ph_25: existing.ph_25 ?? '', viscosity_25: existing.viscosity_25 ?? '',
+        spindle_25: existing.spindle_25 || '', rpm_25: existing.rpm_25 ?? '',
         ph_45: existing.ph_45 ?? '', viscosity_45: existing.viscosity_45 ?? '',
+        spindle_45: existing.spindle_45 || '', rpm_45: existing.rpm_45 ?? '',
         ph_50: existing.ph_50 ?? '', viscosity_50: existing.viscosity_50 ?? '',
-        spindle: existing.spindle || '', rpm: existing.rpm ?? '',
+        spindle_50: existing.spindle_50 || '', rpm_50: existing.rpm_50 ?? '',
         notes: existing.notes || '',
         measured_at: existing.measured_at || new Date().toISOString().split('T')[0],
       })
@@ -55,8 +69,8 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
-        <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="p-5 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
           <div>
             <h2 className="text-base font-semibold text-gray-900">Enter Measurements</h2>
             <p className="text-sm text-gray-500 mt-0.5">
@@ -80,35 +94,22 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
                   {isNA && <span className="text-xs font-normal text-gray-400 normal-case">(N/A for this time point)</span>}
                 </p>
                 {isNA ? (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="h-9 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-400">N/A</div>
-                    <div className="h-9 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-400">N/A</div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {['pH', 'Viscosity', 'Spindle #', 'RPM'].map(l => (
+                      <div key={l} className="h-9 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-400">N/A</div>
+                    ))}
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
                     <NumInput label="pH" value={form[`ph_${suf}`]} onChange={v => set(`ph_${suf}`, v)} />
                     <NumInput label="Viscosity (cP)" value={form[`viscosity_${suf}`]} onChange={v => set(`viscosity_${suf}`, v)} />
+                    <TextInput label="Spindle #" value={form[`spindle_${suf}`]} onChange={v => set(`spindle_${suf}`, v)} placeholder="e.g. SC4-25" />
+                    <NumInput label="RPM" value={form[`rpm_${suf}`]} onChange={v => set(`rpm_${suf}`, v)} placeholder="e.g. 10" />
                   </div>
                 )}
               </div>
             )
           })}
-
-          <div className="rounded-xl border border-gray-200 p-3 bg-gray-50/50">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Viscometer Settings</p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="label">Spindle #</label>
-                <input className="input" value={form.spindle}
-                  onChange={e => set('spindle', e.target.value)} placeholder="e.g. SC4-25" />
-              </div>
-              <div>
-                <label className="label">RPM</label>
-                <input type="number" step="0.1" className="input" value={form.rpm}
-                  onChange={e => set('rpm', e.target.value)} placeholder="e.g. 10" />
-              </div>
-            </div>
-          </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
