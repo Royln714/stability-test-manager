@@ -147,7 +147,7 @@ app.delete('/api/samples/:id', (req, res) => {
 
 app.post('/api/samples/:id/results', (req, res) => {
   const sample_id = Number(req.params.id);
-  const { time_point, ph_25, viscosity_25, ph_45, viscosity_45, ph_50, viscosity_50, notes, measured_at } = req.body;
+  const { time_point, ph_25, viscosity_25, ph_45, viscosity_45, ph_50, viscosity_50, notes, measured_at, spindle, rpm } = req.body;
   if (!time_point) return res.status(400).json({ error: 'time_point required' });
 
   const toNum = v => (v === '' || v === null || v === undefined) ? null : Number(v);
@@ -159,6 +159,7 @@ app.post('/api/samples/:id/results', (req, res) => {
     ph_25: toNum(ph_25), viscosity_25: toNum(viscosity_25),
     ph_45: toNum(ph_45), viscosity_45: toNum(viscosity_45),
     ph_50: toNum(ph_50), viscosity_50: toNum(viscosity_50),
+    spindle: spindle || null, rpm: toNum(rpm),
     notes: notes || '',
     measured_at: measured_at || today(),
   };
