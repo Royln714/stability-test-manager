@@ -89,26 +89,41 @@ app.get('/api/samples/:id', (req, res) => {
   res.json({ ...sample, results, images });
 });
 
+const DEFAULT_TEMPS = [
+  { value: 25, na_tps: [] },
+  { value: 45, na_tps: ['Initial'] },
+  { value: 50, na_tps: ['Initial', '2_weeks'] },
+];
+
 app.post('/api/samples', (req, res) => {
-  const { name, ref_no, date_started, remarks } = req.body;
+  const { name, ref_no, date_started, remarks, temp_config } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Sample name is required' });
   const db = readDB();
-  const sample = { id: nextId(db, 'samples'), name: name.trim(), ref_no: ref_no || '', date_started: date_started || '', remarks: remarks || '', created_at: now() };
+  const sample = {
+    id: nextId(db, 'samples'),
+    name: name.trim(), ref_no: ref_no || '', date_started: date_started || '', remarks: remarks || '',
+    temp_config: JSON.stringify(temp_config || DEFAULT_TEMPS),
+    created_at: now(),
+  };
   db.samples.push(sample);
   writeDB(db);
-  res.status(201).json(sample);
+  res.status(201).json({ ...sample, temp_config: JSON.parse(sample.temp_config) });
 });
 
 app.put('/api/samples/:id', (req, res) => {
   const id = Number(req.params.id);
-  const { name, ref_no, date_started, remarks } = req.body;
+  const { name, ref_no, date_started, remarks, temp_config } = req.body;
   if (!name?.trim()) return res.status(400).json({ error: 'Sample name is required' });
   const db = readDB();
   const idx = db.samples.findIndex(s => s.id === id);
   if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  db.samples[idx] = { ...db.samples[idx], name: name.trim(), ref_no: ref_no || '', date_started: date_started || '', remarks: remarks || '' };
+  db.samples[idx] = {
+    ...db.samples[idx], name: name.trim(), ref_no: ref_no || '', date_started: date_started || '', remarks: remarks || '',
+    temp_config: JSON.stringify(temp_config || DEFAULT_TEMPS),
+  };
   writeDB(db);
-  res.json(db.samples[idx]);
+  const s = db.samples[idx];
+  res.json({ ...s, temp_config: JSON.parse(s.temp_config) });
 });
 
 app.delete('/api/samples/:id', (req, res) => {
