@@ -3,9 +3,11 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -32,6 +34,7 @@ function readDB() {
   if (!data.formulations) data.formulations = [];
   if (!data.users) data.users = [];
   if (!data.audit_log) data.audit_log = [];
+  if (!data.password_resets) data.password_resets = [];
   if (!data._counters) data._counters = {};
   ['samples','results','images','formulations','users','audit_log'].forEach(t => {
     if (!data._counters[t]) data._counters[t] = 0;
@@ -49,6 +52,17 @@ function nextId(db, table) {
   db._counters[table] = (db._counters[table] || 0) + 1;
   return db._counters[table];
 }
+
+// ── Email transporter ─────────────────────────────────────────────────────────
+
+const mailer = (process.env.SMTP_USER && process.env.SMTP_PASS)
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'smtp.gmail.com',
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+    })
+  : null;
 
 function now() { return new Date().toISOString().replace('T', ' ').slice(0, 19); }
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -188,6 +202,82 @@ app.post('/api/auth/logout', requireAuth, (req, res) => {
   logAudit(db, req.user.id, req.user.username, 'logout', req.ip || '', '');
   writeDB(db);
   res.clearCookie(COOKIE_NAME);
+  res.json({ success: true });
+});
+
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email?.trim()) return res.status(400).json({ error: 'Email address required' });
+
+  const db = readDB();
+  const user = db.users.find(u => u.email && u.email.toLowerCase() === email.trim().toLowerCase() && u.is_active);
+
+  // Always return success to prevent email enumeration
+  if (!user) return res.json({ message: 'If that email is registered, a reset link has been sent.' });
+
+  // Generate secure token, valid for 1 hour
+  const token = crypto.randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  db.password_resets = (db.password_resets || []).filter(r => r.user_id !== user.id);
+  db.password_resets.push({ user_id: user.id, token, expires });
+  writeDB(db);
+
+  const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+  const resetUrl = `${appUrl}/reset-password?token=${token}`;
+
+  if (mailer) {
+    try {
+      await mailer.sendMail({
+        from: `"FormuLab Hub" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+        to: user.email,
+        subject: 'FormuLab Hub — Password Reset',
+        html: `
+<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;padding:20px;background:#f9fafb;">
+<div style="background:#1e40af;padding:20px 24px;border-radius:10px 10px 0 0;">
+  <h1 style="color:#fff;margin:0;font-size:18px;">🧪 FormuLab Hub</h1>
+</div>
+<div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:28px 24px;border-radius:0 0 10px 10px;">
+  <h2 style="color:#1f2937;margin-top:0;">Password Reset Request</h2>
+  <p style="color:#6b7280;">Hello <strong>${user.username}</strong>,</p>
+  <p style="color:#6b7280;">Someone requested a password reset for your account. Click the button below to set a new password. This link expires in <strong>1 hour</strong>.</p>
+  <div style="text-align:center;margin:32px 0;">
+    <a href="${resetUrl}" style="background:#1e40af;color:#fff;padding:13px 36px;border-radius:8px;text-decoration:none;font-weight:bold;font-size:15px;display:inline-block;">Reset My Password</a>
+  </div>
+  <p style="color:#9ca3af;font-size:12px;">If you didn't request this, you can safely ignore this email.</p>
+  <p style="color:#9ca3af;font-size:12px;word-break:break-all;">Link: ${resetUrl}</p>
+</div></body></html>`,
+      });
+    } catch (err) {
+      console.error('Email send error:', err.message);
+    }
+  } else {
+    console.log(`[RESET LINK for ${user.username}] ${resetUrl}`);
+  }
+
+  res.json({ message: 'If that email is registered, a reset link has been sent.' });
+});
+
+app.post('/api/auth/reset-password', (req, res) => {
+  const { token, new_password } = req.body;
+  if (!token || !new_password) return res.status(400).json({ error: 'Token and new password required' });
+  if (new_password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+
+  const db = readDB();
+  const reset = (db.password_resets || []).find(r => r.token === token);
+  if (!reset) return res.status(400).json({ error: 'Invalid or expired reset link' });
+  if (new Date() > new Date(reset.expires)) {
+    db.password_resets = db.password_resets.filter(r => r.token !== token);
+    writeDB(db);
+    return res.status(400).json({ error: 'Reset link has expired. Please request a new one.' });
+  }
+
+  const user = db.users.find(u => u.id === reset.user_id);
+  if (!user) return res.status(400).json({ error: 'User not found' });
+
+  user.password_hash = bcrypt.hashSync(new_password, 10);
+  db.password_resets = db.password_resets.filter(r => r.token !== token);
+  logAudit(db, user.id, user.username, 'password_reset', req.ip || '', 'Password reset via email');
+  writeDB(db);
   res.json({ success: true });
 });
 
@@ -499,7 +589,7 @@ app.post('/api/formulations', (req, res) => {
     ingredients: req.body.ingredients || [],
     procedure: req.body.procedure || [],
     specifications: req.body.specifications || [],
-    company_name: req.body.company_name || 'TECHNECTURE SDN BHD',
+    company_name: req.body.company_name || 'ET',
     company_address: req.body.company_address || 'No6, Jalan Spring 34/32, Golden Pavilion Industrial Park @Bukit Kemuning\nSeksyen 34, 40470 Shah Alam, Selangor.',
     company_tel: req.body.company_tel || '+603-51318868',
     company_fax: req.body.company_fax || '+603-51314899',
