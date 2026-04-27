@@ -19,7 +19,7 @@ function Navbar({ user, onLogout }) {
         <div className="flex items-center justify-between h-14">
           <Link to="/" className="flex items-center gap-2.5 font-semibold text-gray-900 hover:text-blue-600 transition-colors">
             <span className="text-xl">🧪</span>
-            <span>Stability Test Manager</span>
+            <span>FormuLab Hub</span>
           </Link>
           <div className="flex items-center gap-1">
             <Link to="/" className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${!isForm && !isAdmin ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}>
