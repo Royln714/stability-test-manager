@@ -4,32 +4,31 @@ import {
 
 const TIME_ORDER = ['Initial', '2_weeks', '1_month', '2_months', '3_months']
 const TIME_LABELS = { Initial: 'Initial', '2_weeks': '2W', '1_month': '1M', '2_months': '2M', '3_months': '3M' }
+const SUFFIXES = ['25', '45', '50']
+const COLORS = ['#2563eb', '#d97706', '#dc2626']
 
-const COLORS = { 25: '#2563eb', 45: '#d97706', 50: '#dc2626' }
-
-function buildSeries(results, field25, field45, field50) {
+function buildSeries(results, temps) {
   const byTP = Object.fromEntries(results.map(r => [r.time_point, r]))
   return TIME_ORDER.map(tp => {
     const r = byTP[tp]
-    return {
-      tp: TIME_LABELS[tp],
-      '25°C': r?.[field25] ?? null,
-      '45°C': r?.[field45] ?? null,
-      '50°C': r?.[field50] ?? null,
-    }
+    const point = { tp: TIME_LABELS[tp] }
+    temps.forEach((t, i) => {
+      const suf = SUFFIXES[i]
+      point[`${t.value}°C`] = r?.[`ph_${suf}`] ?? null
+      point[`visc_${t.value}°C`] = r?.[`viscosity_${suf}`] ?? null
+    })
+    return point
   })
 }
 
-function TrendChart({ title, data, unit }) {
-  const hasData = data.some(d => d['25°C'] !== null || d['45°C'] !== null || d['50°C'] !== null)
-  if (!hasData) {
-    return (
-      <div className="card p-6 flex flex-col items-center justify-center h-56">
-        <p className="text-2xl mb-2">📊</p>
-        <p className="text-sm text-gray-400">{title} — No data yet</p>
-      </div>
-    )
-  }
+function TrendChart({ title, dataKey, data, temps, unit }) {
+  const hasData = data.some(d => temps.some((t) => d[`${dataKey === 'ph' ? '' : 'visc_'}${t.value}°C`] !== null))
+  if (!hasData) return (
+    <div className="card p-6 flex flex-col items-center justify-center h-56">
+      <p className="text-2xl mb-2">📊</p>
+      <p className="text-sm text-gray-400">{title} — No data yet</p>
+    </div>
+  )
   return (
     <div className="card p-5">
       <h3 className="font-semibold text-sm text-gray-700 mb-4">{title}</h3>
@@ -38,32 +37,29 @@ function TrendChart({ title, data, unit }) {
           <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
           <XAxis dataKey="tp" tick={{ fontSize: 11 }} />
           <YAxis tick={{ fontSize: 11 }} unit={unit ? ` ${unit}` : ''} />
-          <Tooltip
-            contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
-            formatter={(v, name) => [v !== null ? `${v}${unit ? ' ' + unit : ''}` : 'N/A', name]}
-          />
+          <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #e5e7eb' }}
+            formatter={(v, name) => [v !== null ? `${v}${unit ? ' ' + unit : ''}` : 'N/A', name]} />
           <Legend wrapperStyle={{ fontSize: 12 }} />
-          {['25°C', '45°C', '50°C'].map(temp => (
-            <Line
-              key={temp}
-              type="monotone"
-              dataKey={temp}
-              stroke={COLORS[parseInt(temp)]}
-              strokeWidth={2}
-              dot={{ r: 4, fill: COLORS[parseInt(temp)] }}
-              connectNulls={false}
-              activeDot={{ r: 6 }}
-            />
-          ))}
+          {temps.map((t, i) => {
+            const key = dataKey === 'ph' ? `${t.value}°C` : `visc_${t.value}°C`
+            const label = dataKey === 'ph' ? `${t.value}°C` : `${t.value}°C`
+            return (
+              <Line key={i} type="monotone" dataKey={key} name={label}
+                stroke={COLORS[i] || '#6b7280'} strokeWidth={2}
+                dot={{ r: 4, fill: COLORS[i] || '#6b7280' }}
+                connectNulls={false} activeDot={{ r: 6 }} />
+            )
+          })}
         </LineChart>
       </ResponsiveContainer>
     </div>
   )
 }
 
-function SummaryTable({ results }) {
+function SummaryTable({ results, temps }) {
   const byTP = Object.fromEntries(results.map(r => [r.time_point, r]))
   const fmt = v => (v === null || v === undefined) ? '—' : Number(v).toFixed(2)
+  const TEMP_COLORS = ['text-blue-600', 'text-amber-600', 'text-red-600']
 
   return (
     <div className="card overflow-hidden">
@@ -75,27 +71,35 @@ function SummaryTable({ results }) {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-4 py-2.5 text-left font-semibold text-gray-600">Time Point</th>
-              <th className="px-3 py-2.5 text-center font-semibold text-blue-600">pH 25°C</th>
-              <th className="px-3 py-2.5 text-center font-semibold text-blue-600">Visc 25°C</th>
-              <th className="px-3 py-2.5 text-center font-semibold text-amber-600">pH 45°C</th>
-              <th className="px-3 py-2.5 text-center font-semibold text-amber-600">Visc 45°C</th>
-              <th className="px-3 py-2.5 text-center font-semibold text-red-600">pH 50°C</th>
-              <th className="px-3 py-2.5 text-center font-semibold text-red-600">Visc 50°C</th>
+              {temps.map((t, i) => (
+                <>
+                  <th key={`ph-${i}`} className={`px-3 py-2.5 text-center font-semibold ${TEMP_COLORS[i]}`}>pH {t.value}°C</th>
+                  <th key={`v-${i}`} className={`px-3 py-2.5 text-center font-semibold ${TEMP_COLORS[i]}`}>Visc {t.value}°C</th>
+                </>
+              ))}
               <th className="px-3 py-2.5 text-left text-gray-500">Notes</th>
             </tr>
           </thead>
           <tbody>
-            {TIME_ORDER.map((tp, i) => {
+            {TIME_ORDER.map((tp, idx) => {
               const r = byTP[tp]
               return (
-                <tr key={tp} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                  <td className="px-4 py-2 font-medium text-gray-700">{TIME_LABELS[tp] === 'Initial' ? 'Initial' : TIME_LABELS[tp]}</td>
-                  <td className="px-3 py-2 text-center text-gray-700">{fmt(r?.ph_25)}</td>
-                  <td className="px-3 py-2 text-center text-gray-700">{fmt(r?.viscosity_25)}</td>
-                  <td className="px-3 py-2 text-center text-gray-700">{tp === 'Initial' ? <span className="text-gray-300">N/A</span> : fmt(r?.ph_45)}</td>
-                  <td className="px-3 py-2 text-center text-gray-700">{tp === 'Initial' ? <span className="text-gray-300">N/A</span> : fmt(r?.viscosity_45)}</td>
-                  <td className="px-3 py-2 text-center text-gray-700">{(tp === 'Initial' || tp === '2_weeks') ? <span className="text-gray-300">N/A</span> : fmt(r?.ph_50)}</td>
-                  <td className="px-3 py-2 text-center text-gray-700">{(tp === 'Initial' || tp === '2_weeks') ? <span className="text-gray-300">N/A</span> : fmt(r?.viscosity_50)}</td>
+                <tr key={tp} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                  <td className="px-4 py-2 font-medium text-gray-700">{TIME_LABELS[tp]}</td>
+                  {temps.map((t, i) => {
+                    const suf = SUFFIXES[i]
+                    const isNA = (t.na_tps || []).includes(tp)
+                    return (
+                      <>
+                        <td key={`ph-${i}`} className="px-3 py-2 text-center text-gray-700">
+                          {isNA ? <span className="text-gray-300">N/A</span> : fmt(r?.[`ph_${suf}`])}
+                        </td>
+                        <td key={`v-${i}`} className="px-3 py-2 text-center text-gray-700">
+                          {isNA ? <span className="text-gray-300">N/A</span> : fmt(r?.[`viscosity_${suf}`])}
+                        </td>
+                      </>
+                    )
+                  })}
                   <td className="px-3 py-2 text-gray-500 text-xs">{r?.notes || ''}</td>
                 </tr>
               )
@@ -107,17 +111,16 @@ function SummaryTable({ results }) {
   )
 }
 
-export default function Charts({ results }) {
-  const phData = buildSeries(results, 'ph_25', 'ph_45', 'ph_50')
-  const viscData = buildSeries(results, 'viscosity_25', 'viscosity_45', 'viscosity_50')
-
+export default function Charts({ results, temps }) {
+  const activTemps = temps || []
+  const data = buildSeries(results, activTemps)
   return (
     <div className="space-y-5">
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <TrendChart title="pH Over Time" data={phData} unit="" />
-        <TrendChart title="Viscosity Over Time (cP)" data={viscData} unit="cP" />
+        <TrendChart title="pH Over Time" dataKey="ph" data={data} temps={activTemps} unit="" />
+        <TrendChart title="Viscosity Over Time (cP)" dataKey="visc" data={data} temps={activTemps} unit="cP" />
       </div>
-      <SummaryTable results={results} />
+      <SummaryTable results={results} temps={activTemps} />
     </div>
   )
 }
