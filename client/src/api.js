@@ -1,6 +1,37 @@
 import axios from 'axios'
 
-const api = axios.create({ baseURL: '/api' })
+const api = axios.create({ baseURL: '/api', withCredentials: true })
+
+// ── Auth ───────────────────────────────────────────────────────────────────────
+
+export const getMe = () =>
+  api.get('/auth/me').then(r => r.data)
+
+export const login = (username, password) =>
+  api.post('/auth/login', { username, password }).then(r => r.data)
+
+export const logout = () =>
+  api.post('/auth/logout').then(r => r.data)
+
+export const changePassword = (current_password, new_password) =>
+  api.put('/auth/password', { current_password, new_password }).then(r => r.data)
+
+// ── User Management ───────────────────────────────────────────────────────────
+
+export const getUsers = () =>
+  api.get('/users').then(r => r.data)
+
+export const createUser = data =>
+  api.post('/users', data).then(r => r.data)
+
+export const updateUser = (id, data) =>
+  api.put(`/users/${id}`, data).then(r => r.data)
+
+export const deleteUser = id =>
+  api.delete(`/users/${id}`).then(r => r.data)
+
+export const getAuditLog = () =>
+  api.get('/audit-log').then(r => r.data)
 
 export const getSamples = (search = '') =>
   api.get('/samples', { params: search ? { search } : {} }).then(r => r.data)
