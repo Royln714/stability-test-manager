@@ -49,6 +49,20 @@ export async function generatePDF(sample) {
   doc.text(sample.date_started || '—', margin + 134, infoY)
   doc.text(sample.remarks || '—', margin + 181, infoY)
 
+  // Spec limits line
+  const hasSpec = sample.spec_ph_min != null || sample.spec_ph_max != null || sample.spec_visc_min != null || sample.spec_visc_max != null
+  if (hasSpec) {
+    const specY = infoY + 6
+    doc.setFontSize(7.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80)
+    doc.text('Spec:', margin, specY)
+    doc.setFont('helvetica', 'normal')
+    const phSpec = (sample.spec_ph_min != null || sample.spec_ph_max != null)
+      ? `pH ${sample.spec_ph_min ?? '—'} – ${sample.spec_ph_max ?? '—'}` : ''
+    const viscSpec = (sample.spec_visc_min != null || sample.spec_visc_max != null)
+      ? `Viscosity ${sample.spec_visc_min ?? '—'} – ${sample.spec_visc_max ?? '—'} cP` : ''
+    doc.text([phSpec, viscSpec].filter(Boolean).join('   '), margin + 12, specY)
+  }
+
   // Divider
   doc.setDrawColor(200, 200, 200)
   doc.line(margin, infoY + 4, pageW - margin, infoY + 4)
@@ -114,7 +128,7 @@ export async function generatePDF(sample) {
   })
 
   autoTable(doc, {
-    startY: infoY + 8,
+    startY: hasSpec ? infoY + 14 : infoY + 8,
     head: tableHead,
     body: tableBody,
     theme: 'grid',
@@ -124,6 +138,31 @@ export async function generatePDF(sample) {
     columnStyles: colStyles,
     margin: { left: margin, right: margin },
   })
+
+  // ── Organoleptic Table ────────────────────────────────────────────────────
+  const hasOrgano = (sample.results || []).some(r => r.appearance || r.color_obs || r.odor || r.phase_sep)
+  if (hasOrgano) {
+    const orgY = doc.lastAutoTable.finalY + 6
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 50, 140)
+    doc.text('Organoleptic Observations', margin, orgY)
+
+    const orgHead = [['Duration', 'Appearance', 'Color', 'Odor', 'Phase Separation']]
+    const orgBody = TIME_POINTS.map(tp => {
+      const r = byTP[tp]
+      return [TIME_LABELS[tp], r?.appearance || '', r?.color_obs || '', r?.odor || '', r?.phase_sep || '']
+    })
+    autoTable(doc, {
+      startY: orgY + 3,
+      head: orgHead,
+      body: orgBody,
+      theme: 'grid',
+      styles: { fontSize: 7.5, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.2 },
+      headStyles: { fillColor: [109, 40, 217], textColor: 255, fontStyle: 'bold', fontSize: 7.5 },
+      alternateRowStyles: { fillColor: [250, 245, 255] },
+      columnStyles: { 0: { cellWidth: 20, fontStyle: 'bold' } },
+      margin: { left: margin, right: margin },
+    })
+  }
 
   // ── Images ────────────────────────────────────────────────────────────────
   const imageFiles = (sample.images || []).filter(img => /\.(jpe?g|png|gif|webp)$/i.test(img.filename))
