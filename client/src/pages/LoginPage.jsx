@@ -30,7 +30,7 @@ export default function LoginPage({ onLogin }) {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-blue-600 rounded-2xl shadow-lg mb-4">
             <span className="text-3xl">🧪</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Stability Test Manager</h1>
+          <h1 className="text-2xl font-bold text-gray-900">FormuLab Hub</h1>
           <p className="text-sm text-gray-500 mt-1">Sign in to continue</p>
         </div>
 
@@ -88,7 +88,7 @@ export default function LoginPage({ onLogin }) {
         </div>
 
         <p className="text-center text-xs text-gray-400 mt-6">
-          Technecture Sdn Bhd · Stability Test Management System
+          Technecture Sdn Bhd · FormuLab Hub
         </p>
       </div>
     </div>
