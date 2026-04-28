@@ -479,12 +479,15 @@ export default function FormulationSheet() {
                   <option key={s.id} value={s.id}>{s.name}{s.ref_no ? ` (${s.ref_no})` : ''}</option>
                 ))}
               </select>
-              {form.linked_sample_id && (
-                <Link to={`/samples/${form.linked_sample_id}`}
-                  className="text-xs text-blue-600 hover:underline mt-1 inline-block">
-                  View stability test →
-                </Link>
-              )}
+              {form.linked_sample_id && (() => {
+                const ls = samples.find(s => s.id === Number(form.linked_sample_id))
+                return (
+                  <Link to={`/samples/${form.linked_sample_id}`}
+                    className="mt-1 inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full hover:bg-blue-100 transition-colors">
+                    🧪 {ls?.ref_no ? <span className="font-mono">{ls.ref_no}</span> : null}{ls?.ref_no && ls?.name ? ' — ' : ''}{ls?.name || 'View Stability Test'} →
+                  </Link>
+                )
+              })()}
             </div>
           </div>
         </div>
