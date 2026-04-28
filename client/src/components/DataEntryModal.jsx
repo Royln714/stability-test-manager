@@ -6,11 +6,11 @@ const TIME_LABELS = {
 }
 const SUFFIXES = ['25', '45', '50']
 
-function NumInput({ label, value, onChange, placeholder = '0.00' }) {
+function NumInput({ label, value, onChange, placeholder = '0.00', step = 'any' }) {
   return (
     <div>
       <label className="label">{label}</label>
-      <input type="number" step="any" className="input" value={value}
+      <input type="number" step={step} className="input" value={value}
         onChange={e => onChange(e.target.value)} placeholder={placeholder} />
     </div>
   )
@@ -114,7 +114,7 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
                     <NumInput label="Sp. Gravity" value={form[`sg_${suf}`]} onChange={v => set(`sg_${suf}`, v)} placeholder="e.g. 1.02" />
                     <NumInput label="Turbidity (NTU)" value={form[`turbidity_${suf}`]} onChange={v => set(`turbidity_${suf}`, v)} placeholder="e.g. 5" />
                     <TextInput label="Spindle #" value={form[`spindle_${suf}`]} onChange={v => set(`spindle_${suf}`, v)} placeholder="e.g. SC4-25" />
-                    <NumInput label="RPM" value={form[`rpm_${suf}`]} onChange={v => set(`rpm_${suf}`, v)} placeholder="e.g. 10" />
+                    <NumInput label="RPM" value={form[`rpm_${suf}`]} onChange={v => set(`rpm_${suf}`, v)} placeholder="e.g. 10" step="1" />
                   </div>
                 )}
               </div>
