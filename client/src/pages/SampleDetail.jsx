@@ -652,7 +652,7 @@ export default function SampleDetail() {
             {linkedFormulation && (
               <Link to={`/formulations/${linkedFormulation.id}`}
                 className="inline-flex items-center gap-1.5 mt-1.5 text-xs text-purple-700 bg-purple-50 border border-purple-200 px-2.5 py-0.5 rounded-full hover:bg-purple-100 transition-colors">
-                📋 Formulation: {linkedFormulation.product_name || 'View Sheet'} →
+                📋 {linkedFormulation.ref_no ? <span className="font-mono">{linkedFormulation.ref_no}</span> : null}{linkedFormulation.ref_no && linkedFormulation.product_name ? ' — ' : ''}{linkedFormulation.product_name || 'View Formulation'} →
               </Link>
             )}
           </div>
