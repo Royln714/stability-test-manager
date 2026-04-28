@@ -85,7 +85,7 @@ function specClass(value, min, max) {
   return ''
 }
 
-function InlineResultCell({ value, onSave, type = 'number', specMin, specMax }) {
+function InlineResultCell({ value, onSave, type = 'number', specMin, specMax, decimals = 2 }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(value ?? '')
   useEffect(() => { setVal(value ?? '') }, [value])
@@ -96,7 +96,7 @@ function InlineResultCell({ value, onSave, type = 'number', specMin, specMax }) 
   }
 
   const display = type === 'number' && value !== null && value !== undefined && value !== ''
-    ? Number(value).toFixed(2) : value
+    ? Number(value).toFixed(decimals) : value
   const sc = type === 'number' ? specClass(value, specMin, specMax) : ''
 
   if (editing) {
@@ -227,7 +227,7 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, on
                       <InlineResultCell value={row?.[`sg_${suf}`]} onSave={v => onSaveCell(tp, `sg_${suf}`, v)} />
                       <InlineResultCell value={row?.[`turbidity_${suf}`]} onSave={v => onSaveCell(tp, `turbidity_${suf}`, v)} />
                       <InlineResultCell value={row?.[`spindle_${suf}`]} type="text" onSave={v => onSaveCell(tp, `spindle_${suf}`, v)} />
-                      <InlineResultCell value={row?.[`rpm_${suf}`]} onSave={v => onSaveCell(tp, `rpm_${suf}`, v)} />
+                      <InlineResultCell value={row?.[`rpm_${suf}`]} onSave={v => onSaveCell(tp, `rpm_${suf}`, v)} decimals={0} />
                     </Fragment>
                   )
                 })}
