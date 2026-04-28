@@ -28,10 +28,11 @@ function TextInput({ label, value, onChange, placeholder = '' }) {
 
 export default function DataEntryModal({ timePoint, existing, temps, onSave, onClose }) {
   const [form, setForm] = useState({
-    ph_25: '', viscosity_25: '', spindle_25: '', rpm_25: '',
-    ph_45: '', viscosity_45: '', spindle_45: '', rpm_45: '',
-    ph_50: '', viscosity_50: '', spindle_50: '', rpm_50: '',
+    ph_25: '', viscosity_25: '', spindle_25: '', rpm_25: '', sg_25: '', turbidity_25: '',
+    ph_45: '', viscosity_45: '', spindle_45: '', rpm_45: '', sg_45: '', turbidity_45: '',
+    ph_50: '', viscosity_50: '', spindle_50: '', rpm_50: '', sg_50: '', turbidity_50: '',
     appearance: '', color_obs: '', odor: '', phase_sep: '',
+    microbial: '',
     notes: '',
     measured_at: new Date().toISOString().split('T')[0],
   })
@@ -43,12 +44,16 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
       setForm({
         ph_25: existing.ph_25 ?? '', viscosity_25: existing.viscosity_25 ?? '',
         spindle_25: existing.spindle_25 || '', rpm_25: existing.rpm_25 ?? '',
+        sg_25: existing.sg_25 ?? '', turbidity_25: existing.turbidity_25 ?? '',
         ph_45: existing.ph_45 ?? '', viscosity_45: existing.viscosity_45 ?? '',
         spindle_45: existing.spindle_45 || '', rpm_45: existing.rpm_45 ?? '',
+        sg_45: existing.sg_45 ?? '', turbidity_45: existing.turbidity_45 ?? '',
         ph_50: existing.ph_50 ?? '', viscosity_50: existing.viscosity_50 ?? '',
         spindle_50: existing.spindle_50 || '', rpm_50: existing.rpm_50 ?? '',
+        sg_50: existing.sg_50 ?? '', turbidity_50: existing.turbidity_50 ?? '',
         appearance: existing.appearance || '', color_obs: existing.color_obs || '',
         odor: existing.odor || '', phase_sep: existing.phase_sep || '',
+        microbial: existing.microbial || '',
         notes: existing.notes || '',
         measured_at: existing.measured_at || new Date().toISOString().split('T')[0],
       })
@@ -97,15 +102,17 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
                   {isNA && <span className="text-xs font-normal text-gray-400 normal-case">(N/A for this time point)</span>}
                 </p>
                 {isNA ? (
-                  <div className="grid grid-cols-4 gap-2">
-                    {['pH', 'Viscosity', 'Spindle #', 'RPM'].map(l => (
+                  <div className="grid grid-cols-3 gap-2">
+                    {['pH', 'Viscosity (cP)', 'SG', 'Turbidity (NTU)', 'Spindle #', 'RPM'].map(l => (
                       <div key={l} className="h-9 bg-gray-100 rounded-lg flex items-center justify-center text-xs text-gray-400">N/A</div>
                     ))}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-3 gap-2">
                     <NumInput label="pH" value={form[`ph_${suf}`]} onChange={v => set(`ph_${suf}`, v)} />
                     <NumInput label="Viscosity (cP)" value={form[`viscosity_${suf}`]} onChange={v => set(`viscosity_${suf}`, v)} />
+                    <NumInput label="Sp. Gravity" value={form[`sg_${suf}`]} onChange={v => set(`sg_${suf}`, v)} placeholder="e.g. 1.02" />
+                    <NumInput label="Turbidity (NTU)" value={form[`turbidity_${suf}`]} onChange={v => set(`turbidity_${suf}`, v)} placeholder="e.g. 5" />
                     <TextInput label="Spindle #" value={form[`spindle_${suf}`]} onChange={v => set(`spindle_${suf}`, v)} placeholder="e.g. SC4-25" />
                     <NumInput label="RPM" value={form[`rpm_${suf}`]} onChange={v => set(`rpm_${suf}`, v)} placeholder="e.g. 10" />
                   </div>
@@ -134,7 +141,13 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* Microbial + Date + Notes */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="label">Microbial Count</label>
+              <input className="input" value={form.microbial}
+                onChange={e => set('microbial', e.target.value)} placeholder="e.g. &lt;10 cfu/g" />
+            </div>
             <div>
               <label className="label">Measurement Date</label>
               <input type="date" className="input" value={form.measured_at}
