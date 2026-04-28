@@ -12,12 +12,52 @@ const archiver = require('archiver');
 const AdmZip = require('adm-zip');
 const cron = require('node-cron');
 const { MongoClient } = require('mongodb');
+const cloudinary = require('cloudinary').v2;
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+
+// ── Cloudinary / file storage ─────────────────────────────────────────────────
+
+const USE_CLOUDINARY = !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+if (USE_CLOUDINARY) {
+  cloudinary.config({
+    cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+    api_key: process.env.CLOUDINARY_API_KEY,
+    api_secret: process.env.CLOUDINARY_API_SECRET,
+  });
+  console.log('  Cloudinary image storage enabled');
+} else {
+  console.log('  Local image storage (set CLOUDINARY_* env vars for persistent image storage)');
+}
+
+async function storeFile(file) {
+  if (USE_CLOUDINARY) {
+    const result = await new Promise((resolve, reject) => {
+      cloudinary.uploader.upload_stream(
+        { folder: 'formulabhub', resource_type: 'auto' },
+        (err, res) => err ? reject(err) : resolve(res)
+      ).end(file.buffer);
+    });
+    return { public_id: result.public_id, url: result.secure_url, filename: null, original_name: file.originalname };
+  }
+  const ext = path.extname(file.originalname).toLowerCase();
+  const filename = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}${ext}`;
+  fs.writeFileSync(path.join(uploadsDir, filename), file.buffer);
+  return { public_id: null, url: `/uploads/${filename}`, filename, original_name: file.originalname };
+}
+
+async function destroyFile(public_id, filename) {
+  if (public_id) {
+    try { await cloudinary.uploader.destroy(public_id); } catch {}
+  } else if (filename) {
+    const fp = path.join(uploadsDir, filename);
+    if (fs.existsSync(fp)) fs.unlinkSync(fp);
+  }
+}
 
 const JWT_SECRET = process.env.JWT_SECRET || 'stab-mgr-jwt-secret-change-in-prod';
 const COOKIE_NAME = 'stab_auth';
@@ -158,15 +198,8 @@ app.use('/api', (req, res, next) => {
   requireAuth(req, res, next);
 });
 
-const storage = multer.diskStorage({
-  destination: uploadsDir,
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    cb(null, `${Date.now()}-${Math.random().toString(36).substr(2, 9)}${ext}`);
-  }
-});
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (req, file, cb) => cb(null, /\.(jpe?g|png|gif|webp|pdf)$/i.test(file.originalname))
 });
@@ -505,7 +538,7 @@ app.delete('/api/samples/:id', async (req, res) => {
   const id = Number(req.params.id);
   try {
     const images = await col('images').find({ sample_id: id }).toArray();
-    images.forEach(img => { const fp = path.join(uploadsDir, img.filename); if (fs.existsSync(fp)) fs.unlinkSync(fp); });
+    await Promise.all(images.map(img => destroyFile(img.public_id, img.filename)));
     await Promise.all([
       col('samples').deleteOne({ _id: id }),
       col('results').deleteMany({ sample_id: id }),
@@ -566,8 +599,9 @@ app.post('/api/samples/:id/images', upload.single('image'), async (req, res) => 
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   const sample_id = Number(req.params.id);
   try {
+    const stored = await storeFile(req.file);
     const id = await nextId('images');
-    const image = { _id: id, sample_id, filename: req.file.filename, original_name: req.file.originalname, caption: req.body.caption || '', uploaded_at: now() };
+    const image = { _id: id, sample_id, ...stored, caption: req.body.caption || '', uploaded_at: now() };
     await col('images').insertOne(image);
     res.status(201).json(out(image));
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -588,8 +622,7 @@ app.delete('/api/images/:id', async (req, res) => {
   try {
     const img = await col('images').findOne({ _id: id });
     if (img) {
-      const fp = path.join(uploadsDir, img.filename);
-      if (fs.existsSync(fp)) fs.unlinkSync(fp);
+      await destroyFile(img.public_id, img.filename);
       await col('images').deleteOne({ _id: id });
     }
     res.json({ success: true });
@@ -655,10 +688,10 @@ app.delete('/api/formulations/:id', async (req, res) => {
   try {
     const f = await col('formulations').findOne({ _id: id });
     if (f) {
-      [f.logo_filename, f.ref_image_filename].filter(Boolean).forEach(fn => {
-        const fp = path.join(uploadsDir, fn);
-        if (fs.existsSync(fp)) fs.unlinkSync(fp);
-      });
+      await Promise.all([
+        destroyFile(f.logo_public_id, f.logo_filename),
+        destroyFile(f.ref_image_public_id, f.ref_image_filename),
+      ]);
       await col('formulations').deleteOne({ _id: id });
     }
     res.json({ success: true });
@@ -671,9 +704,10 @@ app.post('/api/formulations/:id/logo', upload.single('image'), async (req, res) 
   try {
     const f = await col('formulations').findOne({ _id: id });
     if (!f) return res.status(404).json({ error: 'Not found' });
-    if (f.logo_filename) { const old = path.join(uploadsDir, f.logo_filename); if (fs.existsSync(old)) fs.unlinkSync(old); }
-    await col('formulations').updateOne({ _id: id }, { $set: { logo_filename: req.file.filename } });
-    res.json({ filename: req.file.filename });
+    await destroyFile(f.logo_public_id, f.logo_filename);
+    const stored = await storeFile(req.file);
+    await col('formulations').updateOne({ _id: id }, { $set: { logo_url: stored.url, logo_public_id: stored.public_id, logo_filename: stored.original_name } });
+    res.json({ url: stored.url, filename: stored.original_name });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -683,9 +717,10 @@ app.post('/api/formulations/:id/refimage', upload.single('image'), async (req, r
   try {
     const f = await col('formulations').findOne({ _id: id });
     if (!f) return res.status(404).json({ error: 'Not found' });
-    if (f.ref_image_filename) { const old = path.join(uploadsDir, f.ref_image_filename); if (fs.existsSync(old)) fs.unlinkSync(old); }
-    await col('formulations').updateOne({ _id: id }, { $set: { ref_image_filename: req.file.filename } });
-    res.json({ filename: req.file.filename });
+    await destroyFile(f.ref_image_public_id, f.ref_image_filename);
+    const stored = await storeFile(req.file);
+    await col('formulations').updateOne({ _id: id }, { $set: { ref_image_url: stored.url, ref_image_public_id: stored.public_id, ref_image_filename: stored.original_name } });
+    res.json({ url: stored.url, filename: stored.original_name });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
@@ -715,7 +750,6 @@ app.get('/api/backup/export', requireAdmin, async (req, res) => {
     archive.on('error', err => { if (!res.headersSent) res.status(500).json({ error: err.message }); });
     archive.pipe(res);
     archive.append(JSON.stringify(backup, null, 2), { name: 'backup.json' });
-    if (fs.existsSync(uploadsDir)) archive.directory(uploadsDir, 'uploads');
     archive.finalize();
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
