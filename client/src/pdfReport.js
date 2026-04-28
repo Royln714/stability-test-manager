@@ -110,7 +110,7 @@ export async function generatePDF(sample) {
           numCell(r?.[`ph_${suf}`]),
           numCell(r?.[`viscosity_${suf}`]),
           txtCell(r?.[`spindle_${suf}`]),
-          txtCell(r?.[`rpm_${suf}`] != null && r?.[`rpm_${suf}`] !== '' ? String(r[`rpm_${suf}`]) : ''),
+          txtCell(r?.[`rpm_${suf}`] != null && r?.[`rpm_${suf}`] !== '' ? String(Math.round(Number(r[`rpm_${suf}`]))) : ''),
         )
       }
     })
