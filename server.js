@@ -8,6 +8,8 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser');
 const nodemailer = require('nodemailer');
+const archiver = require('archiver');
+const AdmZip = require('adm-zip');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -152,6 +154,16 @@ const upload = multer({
   storage,
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (req, file, cb) => cb(null, /\.(jpe?g|png|gif|webp|pdf)$/i.test(file.originalname))
+});
+
+const importStorage = multer.diskStorage({
+  destination: DATA_DIR,
+  filename: (req, file, cb) => cb(null, `backup-import-${Date.now()}${path.extname(file.originalname).toLowerCase()}`)
+});
+const uploadImport = multer({
+  storage: importStorage,
+  limits: { fileSize: 200 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, /\.(json|zip)$/i.test(file.originalname))
 });
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────
@@ -668,33 +680,61 @@ app.get('/api/backup/export', requireAdmin, (req, res) => {
     users: db.users,
     _counters: db._counters,
   };
-  const filename = `formulab-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  const filename = `formulab-backup-${new Date().toISOString().slice(0, 10)}.zip`;
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.setHeader('Content-Type', 'application/json');
-  res.send(JSON.stringify(backup, null, 2));
+  res.setHeader('Content-Type', 'application/zip');
+  const archive = archiver('zip', { zlib: { level: 6 } });
+  archive.on('error', err => { if (!res.headersSent) res.status(500).json({ error: err.message }); });
+  archive.pipe(res);
+  archive.append(JSON.stringify(backup, null, 2), { name: 'backup.json' });
+  if (fs.existsSync(uploadsDir)) {
+    archive.directory(uploadsDir, 'uploads');
+  }
+  archive.finalize();
 });
 
-app.post('/api/backup/import', requireAdmin, express.json({ limit: '50mb' }), (req, res) => {
-  const { version, samples, results, images, formulations, users, _counters } = req.body;
-  if (!version || !Array.isArray(samples) || !Array.isArray(formulations)) {
-    return res.status(400).json({ error: 'Invalid or unrecognised backup file' });
+app.post('/api/backup/import', requireAdmin, uploadImport.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No backup file uploaded' });
+  const tempPath = req.file.path;
+  try {
+    let backup;
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    if (ext === '.zip') {
+      const zip = new AdmZip(tempPath);
+      const entry = zip.getEntry('backup.json');
+      if (!entry) return res.status(400).json({ error: 'Invalid backup ZIP: backup.json not found' });
+      backup = JSON.parse(entry.getData().toString('utf8'));
+      zip.getEntries().forEach(e => {
+        if (e.entryName.startsWith('uploads/') && !e.isDirectory) {
+          fs.writeFileSync(path.join(uploadsDir, path.basename(e.entryName)), e.getData());
+        }
+      });
+    } else {
+      backup = JSON.parse(fs.readFileSync(tempPath, 'utf8'));
+    }
+    const { version, samples, results, images, formulations, users, _counters } = backup;
+    if (!version || !Array.isArray(samples) || !Array.isArray(formulations)) {
+      return res.status(400).json({ error: 'Invalid or unrecognised backup file' });
+    }
+    if (!Array.isArray(users) || !users.some(u => u.role === 'admin' && u.is_active)) {
+      return res.status(400).json({ error: 'Backup must contain at least one active admin user' });
+    }
+    const db = readDB();
+    db.samples = samples;
+    db.results = results || [];
+    db.images = images || [];
+    db.formulations = formulations;
+    db.users = users;
+    if (_counters) db._counters = _counters;
+    logAudit(db, req.user.id, req.user.username, 'backup_restored', req.ip || '', 'Data restored from backup');
+    writeDB(db);
+    res.json({
+      success: true,
+      stats: { samples: db.samples.length, formulations: db.formulations.length, users: db.users.length },
+    });
+  } finally {
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
   }
-  if (!Array.isArray(users) || !users.some(u => u.role === 'admin' && u.is_active)) {
-    return res.status(400).json({ error: 'Backup must contain at least one active admin user' });
-  }
-  const db = readDB();
-  db.samples = samples;
-  db.results = results || [];
-  db.images = images || [];
-  db.formulations = formulations;
-  db.users = users;
-  if (_counters) db._counters = _counters;
-  logAudit(db, req.user.id, req.user.username, 'backup_restored', req.ip || '', 'Data restored from backup');
-  writeDB(db);
-  res.json({
-    success: true,
-    stats: { samples: db.samples.length, formulations: db.formulations.length, users: db.users.length },
-  });
 });
 
 // ── Production static serve ───────────────────────────────────────────────────
