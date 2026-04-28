@@ -6,7 +6,8 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 const TIME_ORDER = ['Initial', '2_weeks', '1_month', '2_months', '3_months']
 const TIME_LABELS = { Initial: 'Initial', '2_weeks': '2W', '1_month': '1M', '2_months': '2M', '3_months': '3M' }
 const SUFFIXES = ['25', '45', '50']
-const LINE_COLORS = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#d97706', '#0891b2']
+const LINE_COLORS = ['#2563eb', '#16a34a', '#dc2626', '#9333ea', '#d97706', '#0891b2', '#be185d', '#065f46']
+const MAX_SAMPLES = 6
 
 function buildCompareData(samples) {
   return TIME_ORDER.map(tp => {
@@ -57,16 +58,16 @@ function CompareChart({ title, samples, dataKey, unit }) {
 
 export default function ComparisonPage() {
   const [allSamples, setAllSamples] = useState([])
-  const [selected, setSelected] = useState([null, null])
+  const [slots, setSlots] = useState([null, null])
   const [loaded, setLoaded] = useState([null, null])
   const [loading, setLoading] = useState(false)
 
   useEffect(() => { getSamples().then(setAllSamples).catch(() => {}) }, [])
 
   async function pickSample(idx, id) {
-    const next = [...selected]
-    next[idx] = id ? Number(id) : null
-    setSelected(next)
+    const nextSlots = [...slots]
+    nextSlots[idx] = id ? Number(id) : null
+    setSlots(nextSlots)
     if (!id) {
       const nextLoaded = [...loaded]; nextLoaded[idx] = null; setLoaded(nextLoaded); return
     }
@@ -77,6 +78,16 @@ export default function ComparisonPage() {
     } finally { setLoading(false) }
   }
 
+  function addSlot() {
+    setSlots(s => [...s, null])
+    setLoaded(l => [...l, null])
+  }
+
+  function removeSlot(idx) {
+    setSlots(s => s.filter((_, i) => i !== idx))
+    setLoaded(l => l.filter((_, i) => i !== idx))
+  }
+
   const activeSamples = loaded.filter(Boolean)
   const canCompare = activeSamples.length >= 2
 
@@ -84,18 +95,32 @@ export default function ComparisonPage() {
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Sample Comparison</h1>
-        <p className="text-sm text-gray-500 mt-1">Select two samples to overlay their pH and viscosity trends</p>
+        <p className="text-sm text-gray-500 mt-1">Select up to {MAX_SAMPLES} samples to overlay their pH and viscosity trends</p>
       </div>
 
       <div className="card p-5 mb-6">
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[0, 1].map(idx => (
+          {slots.map((sel, idx) => (
             <div key={idx}>
-              <label className="label">Sample {idx + 1}</label>
-              <select className="input" value={selected[idx] || ''} onChange={e => pickSample(idx, e.target.value)}>
+              <div className="flex items-center justify-between mb-1">
+                <label className="label mb-0">Sample {idx + 1}</label>
+                {slots.length > 2 && (
+                  <button
+                    type="button"
+                    onClick={() => removeSlot(idx)}
+                    className="text-xs text-red-400 hover:text-red-600 font-medium"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <select className="input" value={sel || ''} onChange={e => pickSample(idx, e.target.value)}>
                 <option value="">— Select a sample —</option>
                 {allSamples.map(s => (
-                  <option key={s.id} value={s.id} disabled={selected[1 - idx] === s.id}>{s.ref_no ? `[${s.ref_no}] ` : ''}{s.name}</option>
+                  <option key={s.id} value={s.id}
+                    disabled={slots.some((sid, si) => si !== idx && sid === s.id)}>
+                    {s.ref_no ? `[${s.ref_no}] ` : ''}{s.name}
+                  </option>
                 ))}
               </select>
               {loaded[idx] && (
@@ -107,6 +132,15 @@ export default function ComparisonPage() {
             </div>
           ))}
         </div>
+        {slots.length < MAX_SAMPLES && (
+          <button
+            type="button"
+            onClick={addSlot}
+            className="mt-4 text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+          >
+            <span className="text-base leading-none">+</span> Add another sample
+          </button>
+        )}
       </div>
 
       {loading && <div className="text-center py-10 text-gray-400">Loading...</div>}
@@ -114,7 +148,7 @@ export default function ComparisonPage() {
       {!loading && !canCompare && (
         <div className="text-center py-16">
           <p className="text-4xl mb-3">📊</p>
-          <p className="text-gray-500 font-medium">Select two samples above to compare</p>
+          <p className="text-gray-500 font-medium">Select at least two samples above to compare</p>
         </div>
       )}
 
@@ -124,7 +158,7 @@ export default function ComparisonPage() {
             {activeSamples.map((s, i) => (
               <Link key={i} to={`/samples/${s.id}`}
                 className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 font-medium hover:bg-blue-100 transition-colors">
-                <span className="w-3 h-3 rounded-full inline-block shrink-0" style={{ background: LINE_COLORS[i * 3] }} />
+                <span className="w-3 h-3 rounded-full inline-block shrink-0" style={{ background: LINE_COLORS[i * 3 % LINE_COLORS.length] }} />
                 {s.ref_no ? <span className="font-mono text-xs">{s.ref_no}</span> : null}{s.ref_no && s.name ? ' — ' : ''}{s.name}
               </Link>
             ))}
