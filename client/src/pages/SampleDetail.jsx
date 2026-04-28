@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { getSample, updateSample, updateSampleStatus, upsertResult, deleteResult, uploadImage, updateImageCaption, deleteImage, getFormulations } from '../api'
+import { getSample, updateSample, updateSampleStatus, upsertResult, deleteResult, uploadImage, updateImageCaption, deleteImage, getFormulations, duplicateSample } from '../api'
 import DataEntryModal from '../components/DataEntryModal'
 import Charts from '../components/Charts'
 import { generatePDF } from '../pdfReport'
@@ -168,16 +168,17 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, on
 
   return (
     <div className="overflow-x-auto rounded-xl border border-gray-200 shadow-sm">
-      <table className="w-full text-xs border-collapse">
+      <table className="w-full text-xs border-collapse" style={{ minWidth: 900 }}>
         <thead>
           <tr className="bg-gray-50">
             <th className="border border-gray-200 px-3 py-2.5 text-left font-semibold text-gray-700 w-24" rowSpan={2}>Duration</th>
             {temps.map((t, i) => (
-              <th key={i} colSpan={4} className={`border border-gray-200 px-2 py-2.5 text-center font-semibold ${TEMP_HEADER_COLORS[i]}`}>
+              <th key={i} colSpan={6} className={`border border-gray-200 px-2 py-2.5 text-center font-semibold ${TEMP_HEADER_COLORS[i]}`}>
                 {t.value}°C
               </th>
             ))}
             <th colSpan={4} className="border border-gray-200 px-2 py-2.5 text-center font-semibold bg-purple-50 text-purple-700">Organoleptic</th>
+            <th className="border border-gray-200 px-2 py-2.5 text-center font-semibold text-teal-700 bg-teal-50" rowSpan={2}>Microbial</th>
             <th className="border border-gray-200 px-2 py-2.5 text-center font-semibold text-gray-700" rowSpan={2}>Notes</th>
             <th className="border border-gray-200 px-2 py-2.5 w-8" rowSpan={2}></th>
           </tr>
@@ -185,8 +186,10 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, on
             {temps.map((_, i) => (
               <Fragment key={i}>
                 <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>pH</th>
-                <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>Viscosity</th>
-                <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>Spindle #</th>
+                <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>Visc</th>
+                <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>SG</th>
+                <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>NTU</th>
+                <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>Spindle</th>
                 <th className={`border border-gray-200 px-2 py-1.5 text-center font-medium ${TEMP_SUBHEADER[i]}`}>RPM</th>
               </Fragment>
             ))}
@@ -213,22 +216,18 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, on
                   const isNA = (t.na_tps || []).includes(tp)
                   if (isNA) {
                     return (
-                      <td key={tempIdx} colSpan={4}
+                      <td key={tempIdx} colSpan={6}
                         className="na-cell border border-gray-200 px-2 py-2 text-center text-gray-300 bg-gray-50">—</td>
                     )
                   }
                   return (
                     <Fragment key={tempIdx}>
-                      <InlineResultCell value={row?.[`ph_${suf}`]}
-                        onSave={v => onSaveCell(tp, `ph_${suf}`, v)}
-                        specMin={specPhMin} specMax={specPhMax} />
-                      <InlineResultCell value={row?.[`viscosity_${suf}`]}
-                        onSave={v => onSaveCell(tp, `viscosity_${suf}`, v)}
-                        specMin={specViscMin} specMax={specViscMax} />
-                      <InlineResultCell value={row?.[`spindle_${suf}`]} type="text"
-                        onSave={v => onSaveCell(tp, `spindle_${suf}`, v)} />
-                      <InlineResultCell value={row?.[`rpm_${suf}`]}
-                        onSave={v => onSaveCell(tp, `rpm_${suf}`, v)} />
+                      <InlineResultCell value={row?.[`ph_${suf}`]} onSave={v => onSaveCell(tp, `ph_${suf}`, v)} specMin={specPhMin} specMax={specPhMax} />
+                      <InlineResultCell value={row?.[`viscosity_${suf}`]} onSave={v => onSaveCell(tp, `viscosity_${suf}`, v)} specMin={specViscMin} specMax={specViscMax} />
+                      <InlineResultCell value={row?.[`sg_${suf}`]} onSave={v => onSaveCell(tp, `sg_${suf}`, v)} />
+                      <InlineResultCell value={row?.[`turbidity_${suf}`]} onSave={v => onSaveCell(tp, `turbidity_${suf}`, v)} />
+                      <InlineResultCell value={row?.[`spindle_${suf}`]} type="text" onSave={v => onSaveCell(tp, `spindle_${suf}`, v)} />
+                      <InlineResultCell value={row?.[`rpm_${suf}`]} onSave={v => onSaveCell(tp, `rpm_${suf}`, v)} />
                     </Fragment>
                   )
                 })}
@@ -236,6 +235,7 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, on
                 <OrganoCell row={row} field="color_obs"   timePoint={tp} onSave={onSaveCell} placeholder="e.g. White" />
                 <OrganoCell row={row} field="odor"        timePoint={tp} onSave={onSaveCell} placeholder="e.g. Normal" />
                 <OrganoCell row={row} field="phase_sep"   timePoint={tp} onSave={onSaveCell} placeholder="None" />
+                <OrganoCell row={row} field="microbial"   timePoint={tp} onSave={onSaveCell} placeholder="e.g. <10" />
                 <NotesCell row={row} timePoint={tp} onSave={onSaveNotes} />
                 <td className="border border-gray-200 px-2 py-2 text-center">
                   {row && (
@@ -488,6 +488,49 @@ export default function SampleDetail() {
     finally { setLoading(false) }
   }
 
+  async function handleDuplicate() {
+    if (!confirm(`Duplicate "${sample.name}"? A copy with no results will be created.`)) return
+    const copy = await duplicateSample(sample.id)
+    navigate(`/samples/${copy.id}`)
+  }
+
+  function handleExportCSV() {
+    const temps = sample ? parseTempConfig(sample.temp_config) : DEFAULT_TEMPS
+    const byTP = Object.fromEntries(sample.results.map(r => [r.time_point, r]))
+    const header = ['Time Point']
+    temps.forEach(t => {
+      header.push(`pH ${t.value}°C`, `Viscosity ${t.value}°C`, `SG ${t.value}°C`, `Turbidity NTU ${t.value}°C`, `Spindle ${t.value}°C`, `RPM ${t.value}°C`)
+    })
+    header.push('Appearance', 'Color', 'Odor', 'Phase Sep', 'Microbial', 'Notes', 'Measured At')
+    const rows = [header]
+    TIME_POINTS.forEach(tp => {
+      const r = byTP[tp]
+      const row = [TIME_LABELS[tp]]
+      temps.forEach((t, i) => {
+        const suf = SUFFIXES[i]
+        const isNA = (t.na_tps || []).includes(tp)
+        row.push(
+          isNA ? 'N/A' : (r?.[`ph_${suf}`] ?? ''),
+          isNA ? 'N/A' : (r?.[`viscosity_${suf}`] ?? ''),
+          isNA ? 'N/A' : (r?.[`sg_${suf}`] ?? ''),
+          isNA ? 'N/A' : (r?.[`turbidity_${suf}`] ?? ''),
+          isNA ? 'N/A' : (r?.[`spindle_${suf}`] ?? ''),
+          isNA ? 'N/A' : (r?.[`rpm_${suf}`] ?? ''),
+        )
+      })
+      row.push(r?.appearance || '', r?.color_obs || '', r?.odor || '', r?.phase_sep || '', r?.microbial || '', r?.notes || '', r?.measured_at || '')
+      rows.push(row)
+    })
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${sample.name.replace(/[^a-z0-9]/gi, '_')}_stability.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   useEffect(() => { load() }, [id])
 
   useEffect(() => {
@@ -526,6 +569,8 @@ export default function SampleDetail() {
     const numericFields = [
       'ph_25', 'ph_45', 'ph_50',
       'viscosity_25', 'viscosity_45', 'viscosity_50',
+      'sg_25', 'sg_45', 'sg_50',
+      'turbidity_25', 'turbidity_45', 'turbidity_50',
       'rpm_25', 'rpm_45', 'rpm_50',
     ]
     const toNum = v => (v === '' || v === null || v === undefined) ? null : Number(v)
@@ -611,7 +656,11 @@ export default function SampleDetail() {
               </Link>
             )}
           </div>
-          <button className="btn-secondary text-xs py-1.5 shrink-0" onClick={() => setEditOpen(true)}>Edit</button>
+          <div className="flex gap-2 shrink-0">
+            <button className="btn-secondary text-xs py-1.5" onClick={handleExportCSV} title="Download CSV">⬇ CSV</button>
+            <button className="btn-secondary text-xs py-1.5" onClick={handleDuplicate} title="Duplicate sample">Copy</button>
+            <button className="btn-secondary text-xs py-1.5" onClick={() => setEditOpen(true)}>Edit</button>
+          </div>
         </div>
         <div className="mt-3 h-1.5 bg-gray-100 rounded-full overflow-hidden">
           <div className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-green-500' : 'bg-blue-500'}`} style={{ width: `${pct}%` }} />
