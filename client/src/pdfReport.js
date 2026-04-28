@@ -165,7 +165,7 @@ export async function generatePDF(sample) {
   }
 
   // ── Images ────────────────────────────────────────────────────────────────
-  const imageFiles = (sample.images || []).filter(img => /\.(jpe?g|png|gif|webp)$/i.test(img.filename))
+  const imageFiles = (sample.images || []).filter(img => img.url && /\.(jpe?g|png|gif|webp)$/i.test(img.original_name || img.filename || ''))
 
   if (imageFiles.length > 0) {
     const tableBottom = doc.lastAutoTable.finalY + 8
@@ -185,8 +185,9 @@ export async function generatePDF(sample) {
 
     for (const img of imageFiles) {
       try {
-        const imgData = await loadImageAsBase64(`/uploads/${img.filename}`)
-        const ext = img.filename.split('.').pop().toUpperCase().replace('JPG', 'JPEG')
+        const imgData = await loadImageAsBase64(img.url)
+        const name = img.original_name || img.filename || ''
+        const ext = name.split('.').pop().toUpperCase().replace('JPG', 'JPEG')
 
         if (imgX + imgW > pageW - margin) {
           imgX = margin
@@ -254,9 +255,9 @@ export async function generateFormulationPDF(f) {
   doc.text(`Tel: ${f.company_tel || ''}    Fax: ${f.company_fax || ''}`, margin, y); y += 3
 
   // Logo (top right)
-  if (f.logo_filename && /\.(jpe?g|png|gif|webp)$/i.test(f.logo_filename)) {
+  if (f.logo_url) {
     try {
-      const logoB64 = await loadImageAsBase64(`/uploads/${f.logo_filename}`)
+      const logoB64 = await loadImageAsBase64(f.logo_url)
       doc.addImage(logoB64, 'JPEG', pageW - margin - 38, margin - 2, 38, 18, '', 'MEDIUM')
     } catch {}
   }
@@ -327,7 +328,7 @@ export async function generateFormulationPDF(f) {
 
   // ── Specs + Ref Image (side by side) ─────────────────────────────────────────
   const hasSpecs = (f.specifications || []).some(s => s.property)
-  const hasRefImg = f.ref_image_filename && /\.(jpe?g|png|gif|webp)$/i.test(f.ref_image_filename)
+  const hasRefImg = !!f.ref_image_url
 
   if (hasSpecs || hasRefImg) {
     if (y > pageH - 60) { doc.addPage(); y = margin }
@@ -348,7 +349,7 @@ export async function generateFormulationPDF(f) {
 
     if (hasRefImg) {
       try {
-        const imgB64 = await loadImageAsBase64(`/uploads/${f.ref_image_filename}`)
+        const imgB64 = await loadImageAsBase64(f.ref_image_url)
         const imgX = margin + specsW + 4
         const imgW = pageW - margin - imgX
         doc.addImage(imgB64, 'JPEG', imgX, y - 2, imgW, 42, '', 'MEDIUM')
