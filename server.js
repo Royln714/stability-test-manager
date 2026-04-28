@@ -261,12 +261,27 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       });
     } catch (err) {
       console.error('Email send error:', err.message);
+      console.log(`[RESET LINK - email failed, use this link for ${user.username}] ${resetUrl}`);
     }
   } else {
-    console.log(`[RESET LINK for ${user.username}] ${resetUrl}`);
+    console.log(`[RESET LINK - no SMTP configured, use this link for ${user.username}] ${resetUrl}`);
   }
 
   res.json({ message: 'If that email is registered, a reset link has been sent.' });
+});
+
+app.post('/api/admin/users/:id/reset-link', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const db = readDB();
+  const user = db.users.find(u => u.id === id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  const token = crypto.randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  db.password_resets = (db.password_resets || []).filter(r => r.user_id !== id);
+  db.password_resets.push({ user_id: id, token, expires });
+  writeDB(db);
+  const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+  res.json({ url: `${appUrl}/reset-password?token=${token}`, expires });
 });
 
 app.post('/api/auth/reset-password', (req, res) => {
