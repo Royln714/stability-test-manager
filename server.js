@@ -11,7 +11,7 @@ const nodemailer = require('nodemailer');
 const archiver = require('archiver');
 const AdmZip = require('adm-zip');
 const cron = require('node-cron');
-const { MongoClient } = require('mongodb');
+const { MongoClient, ServerApiVersion } = require('mongodb');
 const cloudinary = require('cloudinary').v2;
 
 const app = express();
@@ -66,8 +66,9 @@ const COOKIE_OPTS = { httpOnly: true, sameSite: 'strict', maxAge: 7 * 24 * 60 * 
 // ── MongoDB ───────────────────────────────────────────────────────────────────
 
 const mc = new MongoClient(process.env.MONGODB_URI || 'mongodb://localhost:27017/formulabhub', {
-  serverSelectionTimeoutMS: 10000,
-  connectTimeoutMS: 10000,
+  serverApi: { version: ServerApiVersion.v1, strict: false, deprecationErrors: false },
+  serverSelectionTimeoutMS: 15000,
+  connectTimeoutMS: 15000,
 });
 let mdb = null;
 
@@ -815,7 +816,8 @@ if (process.env.NODE_ENV === 'production') {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 async function start() {
-  console.log('  Connecting to MongoDB...');
+  const safeUri = (process.env.MONGODB_URI || 'localhost').replace(/\/\/([^:]+):([^@]+)@/, '//$1:****@');
+  console.log(`  Connecting to MongoDB: ${safeUri}`);
   await mc.connect();
   mdb = mc.db('formulabhub');
   console.log('  Connected to MongoDB');
