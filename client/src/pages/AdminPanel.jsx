@@ -204,10 +204,10 @@ export default function AdminPanel({ currentUser }) {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `formulab-backup-${new Date().toISOString().slice(0, 10)}.json`
+      a.download = `formulab-backup-${new Date().toISOString().slice(0, 10)}.zip`
       a.click()
       URL.revokeObjectURL(url)
-      setBackupMsg({ ok: true, text: 'Backup downloaded successfully.' })
+      setBackupMsg({ ok: true, text: 'Backup downloaded successfully (includes all images).' })
     } catch {
       setBackupMsg({ ok: false, text: 'Export failed. Please try again.' })
     } finally { setBackupWorking(false) }
@@ -220,9 +220,9 @@ export default function AdminPanel({ currentUser }) {
     if (!confirm(`Restore from "${file.name}"?\n\nThis will REPLACE all current data (samples, formulations, users). This cannot be undone.`)) return
     setBackupWorking(true); setBackupMsg(null)
     try {
-      const text = await file.text()
-      const data = JSON.parse(text)
-      const result = await importBackup(data)
+      const formData = new FormData()
+      formData.append('file', file)
+      const result = await importBackup(formData)
       setBackupMsg({ ok: true, text: `Restored: ${result.stats.samples} samples, ${result.stats.formulations} formulations, ${result.stats.users} users.` })
       const [u, a] = await Promise.all([getUsers(), getAuditLog()])
       setUsers(u); setAuditLog(a)
@@ -347,17 +347,16 @@ export default function AdminPanel({ currentUser }) {
         <div className="card p-6 max-w-xl space-y-6">
           <div>
             <h3 className="font-semibold text-gray-900 mb-1">Export Backup</h3>
-            <p className="text-sm text-gray-500 mb-3">Download all samples, formulations, and user accounts as a JSON file. Save this file before migrating to a new server.</p>
+            <p className="text-sm text-gray-500 mb-3">Download all samples, formulations, user accounts, and uploaded images as a ZIP file. Save this before migrating to a new server.</p>
             <button className="btn-primary" onClick={handleExport} disabled={backupWorking}>
-              {backupWorking ? 'Working...' : '⬇ Download Backup'}
+              {backupWorking ? 'Working...' : '⬇ Download Backup (.zip)'}
             </button>
-            <p className="text-xs text-amber-600 mt-2">Note: uploaded images are not included in the backup file.</p>
           </div>
           <hr className="border-gray-200" />
           <div>
             <h3 className="font-semibold text-gray-900 mb-1">Restore from Backup</h3>
             <p className="text-sm text-gray-500 mb-3">Upload a previously exported backup file to restore all data. This will <strong>replace</strong> all current data.</p>
-            <input ref={restoreInputRef} type="file" accept=".json" className="hidden" onChange={handleRestore} />
+            <input ref={restoreInputRef} type="file" accept=".json,.zip" className="hidden" onChange={handleRestore} />
             <button className="btn-danger" onClick={() => restoreInputRef.current.click()} disabled={backupWorking}>
               ⬆ Restore from File
             </button>
