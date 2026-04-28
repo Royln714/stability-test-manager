@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { getUsers, createUser, updateUser, deleteUser, getAuditLog, changePassword, exportBackup, importBackup } from '../api'
+import { getUsers, createUser, updateUser, deleteUser, getAuditLog, changePassword, exportBackup, importBackup, getAdminResetLink } from '../api'
 
 const ACTION_LABELS = {
   login: { label: 'Login', color: 'text-green-700 bg-green-50' },
@@ -169,6 +169,7 @@ export default function AdminPanel({ currentUser }) {
   const [changePwModal, setChangePwModal] = useState(false)
   const [backupWorking, setBackupWorking] = useState(false)
   const [backupMsg, setBackupMsg] = useState(null)
+  const [resetLink, setResetLink] = useState(null)
   const restoreInputRef = useRef()
 
   useEffect(() => {
@@ -187,6 +188,15 @@ export default function AdminPanel({ currentUser }) {
     }
     const log = await getAuditLog()
     setAuditLog(log)
+  }
+
+  async function handleGetResetLink(user) {
+    try {
+      const data = await getAdminResetLink(user.id)
+      setResetLink({ username: user.username, url: data.url })
+    } catch (err) {
+      alert(err?.response?.data?.error || 'Failed to generate reset link')
+    }
   }
 
   async function handleDelete(user) {
@@ -248,6 +258,25 @@ export default function AdminPanel({ currentUser }) {
         />
       )}
       {changePwModal && <ChangePasswordModal onClose={() => setChangePwModal(false)} />}
+
+      {resetLink && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setResetLink(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg" onClick={e => e.stopPropagation()}>
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between">
+              <h2 className="text-base font-semibold">Password Reset Link — {resetLink.username}</h2>
+              <button onClick={() => setResetLink(null)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+            </div>
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-gray-500">Copy this link and send it to the user. It expires in <strong>1 hour</strong>.</p>
+              <div className="flex gap-2">
+                <input readOnly value={resetLink.url} className="input flex-1 text-xs font-mono bg-gray-50 select-all" onClick={e => e.target.select()} />
+                <button className="btn-primary text-sm whitespace-nowrap" onClick={() => { navigator.clipboard.writeText(resetLink.url); alert('Copied!') }}>Copy</button>
+              </div>
+              <p className="text-xs text-amber-600">Keep this link private — anyone with it can reset the password.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -330,6 +359,7 @@ export default function AdminPanel({ currentUser }) {
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-2">
                         <button className="btn-secondary text-xs py-1 px-2" onClick={() => setUserModal(u)}>Edit</button>
+                        <button className="text-xs py-1 px-2 rounded-lg bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors" onClick={() => handleGetResetLink(u)}>Reset Link</button>
                         {u.id !== currentUser.id && (
                           <button className="btn-danger text-xs py-1 px-2" onClick={() => handleDelete(u)}>Delete</button>
                         )}
