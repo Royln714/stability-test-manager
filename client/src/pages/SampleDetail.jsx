@@ -296,8 +296,8 @@ function ImageGallery({ sampleId, images, onUpdate }) {
             <div key={img.id} className="group relative card overflow-hidden">
               <div className="aspect-square bg-gray-100 flex items-center justify-center cursor-pointer"
                 onClick={() => setLightbox(img)}>
-                {/\.(jpe?g|png|gif|webp)$/i.test(img.filename)
-                  ? <img src={`/uploads/${img.filename}`} alt={img.caption} className="w-full h-full object-cover" />
+                {img.url && /\.(jpe?g|png|gif|webp)$/i.test(img.original_name || img.filename || '')
+                  ? <img src={img.url} alt={img.caption} className="w-full h-full object-cover" />
                   : <div className="text-3xl">📄</div>}
               </div>
               <div className="p-2">
@@ -318,7 +318,7 @@ function ImageGallery({ sampleId, images, onUpdate }) {
       {lightbox && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
           <div className="relative max-w-4xl max-h-full">
-            <img src={`/uploads/${lightbox.filename}`} alt={lightbox.caption} className="max-w-full max-h-screen object-contain rounded-lg" />
+            <img src={lightbox.url} alt={lightbox.caption} className="max-w-full max-h-screen object-contain rounded-lg" />
             {lightbox.caption && <p className="text-center text-white text-sm mt-2">{lightbox.caption}</p>}
             <button className="absolute -top-3 -right-3 w-8 h-8 bg-white text-gray-800 rounded-full font-bold"
               onClick={() => setLightbox(null)}>✕</button>
