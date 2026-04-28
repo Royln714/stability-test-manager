@@ -329,7 +329,7 @@ function SpecsEditor({ specs, onChange }) {
 
 // ── Image Uploader ────────────────────────────────────────────────────────────
 
-function ImageUploader({ label, filename, onUpload }) {
+function ImageUploader({ label, url, filename, onUpload }) {
   const ref = useRef()
   const [uploading, setUploading] = useState(false)
   async function handle(e) {
@@ -341,11 +341,11 @@ function ImageUploader({ label, filename, onUpload }) {
     <div>
       <p className="text-xs font-medium text-gray-500 mb-1">{label}</p>
       <div className="flex items-center gap-3">
-        {filename && /\.(jpe?g|png|gif|webp)$/i.test(filename) && (
-          <img src={`/uploads/${filename}`} alt={label} className="h-16 object-contain rounded border border-gray-200 bg-white p-1" />
+        {url && (
+          <img src={url} alt={label} className="h-16 object-contain rounded border border-gray-200 bg-white p-1" />
         )}
         <button className="btn-secondary text-xs" onClick={() => ref.current.click()} disabled={uploading}>
-          {uploading ? 'Uploading...' : filename ? 'Replace' : `Upload ${label}`}
+          {uploading ? 'Uploading...' : (url || filename) ? 'Replace' : `Upload ${label}`}
         </button>
         <input ref={ref} type="file" className="hidden" accept="image/*" onChange={handle} />
       </div>
@@ -387,14 +387,12 @@ export default function FormulationSheet() {
 
   async function handleLogoUpload(file) {
     const r = await uploadLogo(id, file)
-    const next = { ...form, logo_filename: r.filename }
-    setForm(next)
+    setForm(f => ({ ...f, logo_url: r.url, logo_filename: r.filename }))
   }
 
   async function handleRefImageUpload(file) {
     const r = await uploadRefImage(id, file)
-    const next = { ...form, ref_image_filename: r.filename }
-    setForm(next)
+    setForm(f => ({ ...f, ref_image_url: r.url, ref_image_filename: r.filename }))
   }
 
   async function handlePDF() {
@@ -441,7 +439,7 @@ export default function FormulationSheet() {
           </div>
           {/* Logo */}
           <div className="shrink-0">
-            <ImageUploader label="Logo" filename={form.logo_filename} onUpload={handleLogoUpload} />
+            <ImageUploader label="Logo" url={form.logo_url} filename={form.logo_filename} onUpload={handleLogoUpload} />
           </div>
         </div>
 
@@ -529,11 +527,10 @@ export default function FormulationSheet() {
 
         <div className="card p-6">
           <h3 className="font-semibold text-gray-900 mb-3">Reference Image</h3>
-          <ImageUploader label="Product Image" filename={form.ref_image_filename} onUpload={handleRefImageUpload} />
-          {form.ref_image_filename && /\.(jpe?g|png|gif|webp)$/i.test(form.ref_image_filename) && (
+          <ImageUploader label="Product Image" url={form.ref_image_url} filename={form.ref_image_filename} onUpload={handleRefImageUpload} />
+          {form.ref_image_url && (
             <div className="mt-3 border border-gray-200 rounded-xl overflow-hidden bg-gray-50 flex items-center justify-center" style={{ minHeight: 160 }}>
-              <img src={`/uploads/${form.ref_image_filename}`} alt="Reference"
-                className="max-h-48 object-contain" />
+              <img src={form.ref_image_url} alt="Reference" className="max-h-48 object-contain" />
             </div>
           )}
         </div>
