@@ -60,6 +60,9 @@ export const deleteSample = id =>
 export const updateSampleStatus = (id, status) =>
   api.patch(`/samples/${id}/status`, { status }).then(r => r.data)
 
+export const duplicateSample = id =>
+  api.post(`/samples/${id}/duplicate`).then(r => r.data)
+
 export const upsertResult = (sampleId, data) =>
   api.post(`/samples/${sampleId}/results`, data).then(r => r.data)
 
