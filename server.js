@@ -10,6 +10,7 @@ const cookieParser = require('cookie-parser');
 const nodemailer = require('nodemailer');
 const archiver = require('archiver');
 const AdmZip = require('adm-zip');
+const cron = require('node-cron');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -70,6 +71,54 @@ function now() { return new Date().toISOString().replace('T', ' ').slice(0, 19);
 function today() { return new Date().toISOString().split('T')[0]; }
 
 const TIME_ORDER = ['Initial', '2_weeks', '1_month', '2_months', '3_months'];
+const TP_DAYS = { Initial: 0, '2_weeks': 14, '1_month': 30, '2_months': 60, '3_months': 90 };
+const TP_LABELS = { Initial: 'Initial', '2_weeks': '2 Weeks', '1_month': '1 Month', '2_months': '2 Months', '3_months': '3 Months' };
+
+// ── Email reminders cron (daily 8am) ─────────────────────────────────────────
+cron.schedule('0 8 * * *', async () => {
+  if (!mailer) return;
+  try {
+    const db = readDB();
+    const appUrl = process.env.APP_URL || 'http://localhost:3001';
+    const todayMs = new Date().setHours(0, 0, 0, 0);
+    const alerts = [];
+    db.samples.filter(s => (s.status || 'active') === 'active' && s.date_started).forEach(s => {
+      const start = new Date(s.date_started);
+      const done = new Set((db.results.filter(r => r.sample_id === s.id)).map(r => r.time_point));
+      TIME_ORDER.forEach(tp => {
+        if (done.has(tp)) return;
+        const dueMs = new Date(start).setDate(start.getDate() + TP_DAYS[tp]);
+        const diff = Math.ceil((dueMs - todayMs) / 86400000);
+        if (diff >= 0 && diff <= 3) alerts.push({ sample: s, tp, diff });
+        else if (diff < 0) alerts.push({ sample: s, tp, diff });
+      });
+    });
+    if (!alerts.length) return;
+    const recipients = db.users.filter(u => u.is_active && u.email).map(u => u.email);
+    if (!recipients.length) return;
+    const rows = alerts.map(a => {
+      const label = a.diff < 0 ? `<span style="color:#dc2626">OVERDUE (${Math.abs(a.diff)}d ago)</span>` : `Due in ${a.diff} day(s)`;
+      return `<tr><td style="padding:6px 12px;border-bottom:1px solid #f0f0f0">${a.sample.name}</td><td style="padding:6px 12px;border-bottom:1px solid #f0f0f0">${TP_LABELS[a.tp]}</td><td style="padding:6px 12px;border-bottom:1px solid #f0f0f0">${label}</td></tr>`;
+    }).join('');
+    await mailer.sendMail({
+      from: `"FormuLab Hub" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+      to: recipients.join(','),
+      subject: `FormuLab Hub — ${alerts.length} time point(s) need attention`,
+      html: `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
+<div style="background:#1e40af;padding:16px 20px;border-radius:10px 10px 0 0"><h2 style="color:#fff;margin:0;font-size:16px">🧪 FormuLab Hub — Stability Reminders</h2></div>
+<div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:20px;border-radius:0 0 10px 10px">
+<p style="color:#374151;margin-top:0">The following time points require attention:</p>
+<table style="width:100%;border-collapse:collapse;font-size:13px">
+<thead><tr style="background:#f9fafb"><th style="padding:8px 12px;text-align:left;color:#6b7280">Sample</th><th style="padding:8px 12px;text-align:left;color:#6b7280">Time Point</th><th style="padding:8px 12px;text-align:left;color:#6b7280">Status</th></tr></thead>
+<tbody>${rows}</tbody></table>
+<div style="margin-top:20px"><a href="${appUrl}" style="background:#1e40af;color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;font-size:13px">Open FormuLab Hub</a></div>
+</div></body></html>`,
+    });
+    console.log(`[cron] Sent reminder email for ${alerts.length} alerts`);
+  } catch (err) {
+    console.error('[cron] Email reminder error:', err.message);
+  }
+});
 const tpSort = tp => { const i = TIME_ORDER.indexOf(tp); return i === -1 ? 99 : i; };
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -488,6 +537,26 @@ app.patch('/api/samples/:id/status', (req, res) => {
   res.json(sample);
 });
 
+app.post('/api/samples/:id/duplicate', (req, res) => {
+  const id = Number(req.params.id);
+  const db = readDB();
+  const src = db.samples.find(s => s.id === id);
+  if (!src) return res.status(404).json({ error: 'Not found' });
+  const copy = {
+    ...src,
+    id: nextId(db, 'samples'),
+    name: `${src.name} (Copy)`,
+    status: 'active',
+    created_at: now(),
+    results: undefined,
+    images: undefined,
+  };
+  delete copy.results; delete copy.images;
+  db.samples.push(copy);
+  writeDB(db);
+  res.status(201).json({ ...copy, results: [], images: [], completed_points: 0, image_count: 0, time_points_done: [] });
+});
+
 app.delete('/api/samples/:id', (req, res) => {
   const id = Number(req.params.id);
   const db = readDB();
@@ -509,6 +578,7 @@ app.post('/api/samples/:id/results', (req, res) => {
   const {
     time_point, ph_25, viscosity_25, ph_45, viscosity_45, ph_50, viscosity_50,
     spindle_25, rpm_25, spindle_45, rpm_45, spindle_50, rpm_50,
+    sg_25, sg_45, sg_50, turbidity_25, turbidity_45, turbidity_50, microbial,
     notes, measured_at,
     appearance, color_obs, odor, phase_sep,
   } = req.body;
@@ -526,6 +596,9 @@ app.post('/api/samples/:id/results', (req, res) => {
     spindle_45: spindle_45 || null, rpm_45: toNum(rpm_45),
     ph_50: toNum(ph_50), viscosity_50: toNum(viscosity_50),
     spindle_50: spindle_50 || null, rpm_50: toNum(rpm_50),
+    sg_25: toNum(sg_25), sg_45: toNum(sg_45), sg_50: toNum(sg_50),
+    turbidity_25: toNum(turbidity_25), turbidity_45: toNum(turbidity_45), turbidity_50: toNum(turbidity_50),
+    microbial: microbial || null,
     notes: notes || '',
     measured_at: measured_at || today(),
     appearance: appearance || null,
