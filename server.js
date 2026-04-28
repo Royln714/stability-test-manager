@@ -11,6 +11,8 @@ const nodemailer = require('nodemailer');
 const archiver = require('archiver');
 const AdmZip = require('adm-zip');
 const cron = require('node-cron');
+const dns = require('dns');
+dns.setDefaultResultOrder('ipv4first');
 const { MongoClient, ServerApiVersion } = require('mongodb');
 const cloudinary = require('cloudinary').v2;
 
