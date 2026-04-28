@@ -65,7 +65,10 @@ const COOKIE_OPTS = { httpOnly: true, sameSite: 'strict', maxAge: 7 * 24 * 60 * 
 
 // ── MongoDB ───────────────────────────────────────────────────────────────────
 
-const mc = new MongoClient(process.env.MONGODB_URI || 'mongodb://localhost:27017/formulabhub');
+const mc = new MongoClient(process.env.MONGODB_URI || 'mongodb://localhost:27017/formulabhub', {
+  serverSelectionTimeoutMS: 10000,
+  connectTimeoutMS: 10000,
+});
 let mdb = null;
 
 function col(name) { return mdb.collection(name); }
@@ -812,8 +815,9 @@ if (process.env.NODE_ENV === 'production') {
 // ── Start ─────────────────────────────────────────────────────────────────────
 
 async function start() {
+  console.log('  Connecting to MongoDB...');
   await mc.connect();
-  mdb = mc.db();
+  mdb = mc.db('formulabhub');
   console.log('  Connected to MongoDB');
 
   // Ensure at least one admin user exists
@@ -834,6 +838,6 @@ async function start() {
 }
 
 start().catch(err => {
-  console.error('Failed to start:', err);
-  process.exit(1);
+  const msg = '\n  STARTUP FAILED: ' + (err?.message || String(err)) + '\n\n';
+  process.stderr.write(msg, () => process.exit(1));
 });
