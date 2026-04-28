@@ -110,5 +110,5 @@ export const uploadRefImage = (id, file) => {
 export const exportBackup = () =>
   api.get('/backup/export', { responseType: 'blob' }).then(r => r.data)
 
-export const importBackup = data =>
-  api.post('/backup/import', data).then(r => r.data)
+export const importBackup = formData =>
+  api.post('/backup/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
