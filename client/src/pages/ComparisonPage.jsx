@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { getSamples, getSample } from '../api'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 
@@ -94,7 +95,7 @@ export default function ComparisonPage() {
               <select className="input" value={selected[idx] || ''} onChange={e => pickSample(idx, e.target.value)}>
                 <option value="">— Select a sample —</option>
                 {allSamples.map(s => (
-                  <option key={s.id} value={s.id} disabled={selected[1 - idx] === s.id}>{s.name} {s.ref_no ? `(${s.ref_no})` : ''}</option>
+                  <option key={s.id} value={s.id} disabled={selected[1 - idx] === s.id}>{s.ref_no ? `[${s.ref_no}] ` : ''}{s.name}</option>
                 ))}
               </select>
               {loaded[idx] && (
@@ -121,10 +122,11 @@ export default function ComparisonPage() {
         <div className="space-y-5">
           <div className="flex gap-3 flex-wrap">
             {activeSamples.map((s, i) => (
-              <span key={i} className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 font-medium">
-                <span className="w-3 h-3 rounded-full inline-block" style={{ background: LINE_COLORS[i * 3] }} />
-                {s.name}
-              </span>
+              <Link key={i} to={`/samples/${s.id}`}
+                className="inline-flex items-center gap-2 text-sm px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 font-medium hover:bg-blue-100 transition-colors">
+                <span className="w-3 h-3 rounded-full inline-block shrink-0" style={{ background: LINE_COLORS[i * 3] }} />
+                {s.ref_no ? <span className="font-mono text-xs">{s.ref_no}</span> : null}{s.ref_no && s.name ? ' — ' : ''}{s.name}
+              </Link>
             ))}
           </div>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
