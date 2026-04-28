@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { getFormulations, createFormulation, deleteFormulation } from '../api'
+import { useNavigate, Link } from 'react-router-dom'
+import { getFormulations, createFormulation, deleteFormulation, getSamples } from '../api'
 
 export default function Formulations() {
   const [list, setList] = useState([])
+  const [samples, setSamples] = useState([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
 
   useEffect(() => {
-    getFormulations().then(setList).finally(() => setLoading(false))
+    Promise.all([getFormulations(), getSamples().catch(() => [])])
+      .then(([fmts, samps]) => { setList(fmts); setSamples(samps) })
+      .finally(() => setLoading(false))
   }, [])
 
   async function handleNew() {
@@ -52,28 +55,40 @@ export default function Formulations() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {list.map(f => (
-            <div key={f.id} className="card p-5 cursor-pointer hover:shadow-md hover:border-blue-200 transition-all group"
-              onClick={() => navigate(`/formulations/${f.id}`)}>
-              <div className="flex items-start justify-between">
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-semibold text-gray-900 truncate group-hover:text-blue-700">{f.product_name || 'Untitled'}</h3>
-                  {f.ref_no && <p className="text-xs font-mono text-gray-400 mt-0.5">{f.ref_no}</p>}
-                  {f.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{f.description}</p>}
+          {list.map(f => {
+            const linkedSample = f.linked_sample_id ? samples.find(s => s.id === Number(f.linked_sample_id)) : null
+            return (
+              <div key={f.id} className="card p-5 cursor-pointer hover:shadow-md hover:border-blue-200 transition-all group"
+                onClick={() => navigate(`/formulations/${f.id}`)}>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-gray-900 truncate group-hover:text-blue-700">{f.product_name || 'Untitled'}</h3>
+                    {f.ref_no && <p className="text-xs font-mono text-gray-400 mt-0.5">{f.ref_no}</p>}
+                    {f.description && <p className="text-xs text-gray-500 mt-1 line-clamp-2">{f.description}</p>}
+                  </div>
+                </div>
+                <div className="mt-3 flex items-center gap-3 text-xs text-gray-400">
+                  <span>🧪 {(f.ingredients || []).length} ingredients</span>
+                  <span>📋 {(f.procedure || []).length} steps</span>
+                  <span>📅 {f.created_at?.slice(0, 10)}</span>
+                </div>
+                {linkedSample && (
+                  <Link
+                    to={`/samples/${linkedSample.id}`}
+                    onClick={e => e.stopPropagation()}
+                    className="mt-2 inline-flex items-center gap-1 text-xs text-blue-700 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded-full hover:bg-blue-100 transition-colors"
+                  >
+                    🧪 {linkedSample.ref_no ? <span className="font-mono">{linkedSample.ref_no}</span> : linkedSample.name} →
+                  </Link>
+                )}
+                <div className="mt-3 flex items-center justify-between">
+                  <span className="text-xs text-blue-600 group-hover:underline">Open →</span>
+                  <button className="btn-danger text-xs py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={e => handleDelete(e, f.id, f.product_name)}>Delete</button>
                 </div>
               </div>
-              <div className="mt-3 flex items-center gap-3 text-xs text-gray-400">
-                <span>🧪 {(f.ingredients || []).length} ingredients</span>
-                <span>📋 {(f.procedure || []).length} steps</span>
-                <span>📅 {f.created_at?.slice(0, 10)}</span>
-              </div>
-              <div className="mt-3 flex items-center justify-between">
-                <span className="text-xs text-blue-600 group-hover:underline">Open →</span>
-                <button className="btn-danger text-xs py-1 px-2 opacity-0 group-hover:opacity-100 transition-opacity"
-                  onClick={e => handleDelete(e, f.id, f.product_name)}>Delete</button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
     </>
