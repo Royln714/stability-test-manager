@@ -1,141 +1,120 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { getFormulation, updateFormulation, uploadLogo, uploadRefImage, getSamples } from '../api'
+import { getFormulation, updateFormulation, createFormulation, uploadLogo, uploadRefImage, getSamples } from '../api'
 import { generateFormulationPDF } from '../pdfReport'
 import { searchIngredients } from '../ingredientDB'
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 let _id = Date.now()
 const uid = () => ++_id
 
+const STATUS_OPTIONS = ['Lab Trial', 'Completed', 'Improvement', 'Benchmark']
+const STATUS_COLORS = {
+  'Lab Trial':   'bg-blue-50 text-blue-700 border-blue-200',
+  'Completed':   'bg-green-50 text-green-700 border-green-200',
+  'Improvement': 'bg-amber-50 text-amber-700 border-amber-200',
+  'Benchmark':   'bg-purple-50 text-purple-700 border-purple-200',
+}
+
+const COL_DEFS = {
+  part:        { label: 'Part',        w: 'w-10' },
+  trade_name:  { label: 'Trade Name',  w: 'w-32' },
+  description: { label: 'Description', w: 'w-32' },
+  inci_name:   { label: 'INCI Name',   w: '' },
+  cas_no:      { label: 'CAS No.',     w: 'w-24' },
+  percent:     { label: '%',           w: 'w-14' },
+  bulk:        { label: 'Bulk',        w: 'w-20' },
+  supplier:    { label: 'Principal',   w: 'w-28' },
+  function:    { label: 'Function',    w: '' },
+  compliance:  { label: 'Compliance',  w: 'w-28' },
+}
+const DEFAULT_COL_ORDER = ['part','trade_name','description','inci_name','cas_no','percent','bulk','supplier','function','compliance']
+
 function calcBulk(pct, bulkSize) {
-  const n = parseFloat(pct)
-  const b = parseFloat(bulkSize)
+  const n = parseFloat(pct), b = parseFloat(bulkSize)
   if (isNaN(n) || isNaN(b) || b <= 0) return ''
   return (n / 100 * b).toFixed(2)
 }
 
-// ── Inline editable cell ──────────────────────────────────────────────────────
+function getEffRows(rows, qsEnabled) {
+  if (!qsEnabled || rows.length === 0) return rows
+  const restTotal = rows.slice(1).reduce((s, r) => s + (parseFloat(r.percent) || 0), 0)
+  const qsPct = Math.max(0, 100 - restTotal)
+  return [{ ...rows[0], percent: qsPct.toFixed(4) }, ...rows.slice(1)]
+}
 
-function EditCell({ value, onChange, type = 'text', placeholder = '', className = '', align = 'left' }) {
+function mergeColOrder(saved) {
+  if (!saved || saved.length === 0) return DEFAULT_COL_ORDER
+  const filtered = saved.filter(k => DEFAULT_COL_ORDER.includes(k))
+  const missing = DEFAULT_COL_ORDER.filter(k => !filtered.includes(k))
+  return [...filtered, ...missing]
+}
+
+// ── EditCell ──────────────────────────────────────────────────────────────────
+
+function EditCell({ value, onChange, type = 'text', placeholder = '', align = 'left' }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(value ?? '')
   useEffect(() => { setVal(value ?? '') }, [value])
-
-  function commit() {
-    setEditing(false)
-    if (String(val) !== String(value ?? '')) onChange(val)
-  }
-
-  if (editing) {
-    return (
-      <input
-        autoFocus
-        type={type}
-        step={type === 'number' ? '0.01' : undefined}
-        className={`w-full px-1.5 py-0.5 text-xs border border-blue-400 rounded focus:outline-none ${className}`}
-        style={{ textAlign: align }}
-        value={val}
-        onChange={e => setVal(e.target.value)}
-        onBlur={commit}
-        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setEditing(false); setVal(value ?? '') } }}
-      />
-    )
-  }
+  function commit() { setEditing(false); if (String(val) !== String(value ?? '')) onChange(val) }
+  if (editing) return (
+    <input autoFocus type={type} step={type === 'number' ? '0.01' : undefined}
+      className="w-full px-1.5 py-0.5 text-xs border border-blue-400 rounded focus:outline-none"
+      style={{ textAlign: align }} value={val}
+      onChange={e => setVal(e.target.value)} onBlur={commit}
+      onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setEditing(false); setVal(value ?? '') } }}
+    />
+  )
   return (
-    <div
-      className={`min-h-[22px] px-1.5 py-0.5 text-xs cursor-text hover:bg-blue-50 rounded transition-colors ${className}`}
-      style={{ textAlign: align }}
-      onClick={() => setEditing(true)}
-      title="Click to edit"
-    >
+    <div className="min-h-[22px] px-1.5 py-0.5 text-xs cursor-text hover:bg-blue-50 rounded transition-colors"
+      style={{ textAlign: align }} onClick={() => setEditing(true)} title="Click to edit">
       {val || <span className="text-gray-300 italic">{placeholder}</span>}
     </div>
   )
 }
 
-// ── Autocomplete cell for Trade Name ─────────────────────────────────────────
+// ── AutocompleteCell ──────────────────────────────────────────────────────────
 
 function AutocompleteCell({ row, onUpdate }) {
   const [editing, setEditing] = useState(false)
   const [val, setVal] = useState(row.trade_name ?? '')
   const [suggestions, setSuggestions] = useState([])
   const wrapperRef = useRef(null)
-
   useEffect(() => { setVal(row.trade_name ?? '') }, [row.trade_name])
 
   function handleInput(e) {
-    const v = e.target.value
-    setVal(v)
-    if (v.trim().length >= 2) {
-      const results = searchIngredients(v)
-      setSuggestions(results)
-    } else {
-      setSuggestions([])
-    }
+    const v = e.target.value; setVal(v)
+    setSuggestions(v.trim().length >= 2 ? searchIngredients(v) : [])
   }
-
-  function commit() {
-    setEditing(false)
-    setSuggestions([])
-    if (val !== (row.trade_name ?? '')) onUpdate({ trade_name: val })
-  }
-
+  function commit() { setEditing(false); setSuggestions([]); if (val !== (row.trade_name ?? '')) onUpdate({ trade_name: val }) }
   function selectSuggestion(item) {
     const updates = { trade_name: item.trade_name, inci_name: item.inci || '', cas_no: item.cas || '' }
     if (!row.supplier && item.supplier) updates.supplier = item.supplier
     if (!row.function && item.function) updates.function = item.function
-    setVal(item.trade_name)
-    setSuggestions([])
-    setEditing(false)
-    onUpdate(updates)
+    setVal(item.trade_name); setSuggestions([]); setEditing(false); onUpdate(updates)
   }
-
   useEffect(() => {
-    function onOutside(e) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
-        setEditing(false)
-        setSuggestions([])
-      }
-    }
-    if (editing) document.addEventListener('mousedown', onOutside)
-    return () => document.removeEventListener('mousedown', onOutside)
+    function onOut(e) { if (wrapperRef.current && !wrapperRef.current.contains(e.target)) { setEditing(false); setSuggestions([]) } }
+    if (editing) document.addEventListener('mousedown', onOut)
+    return () => document.removeEventListener('mousedown', onOut)
   }, [editing])
 
-  if (!editing) {
-    return (
-      <div
-        className="min-h-[22px] px-1.5 py-0.5 text-xs cursor-text hover:bg-blue-50 rounded transition-colors"
-        onClick={() => setEditing(true)}
-        title="Click to edit"
-      >
-        {val || <span className="text-gray-300 italic">Trade name...</span>}
-      </div>
-    )
-  }
-
+  if (!editing) return (
+    <div className="min-h-[22px] px-1.5 py-0.5 text-xs cursor-text hover:bg-blue-50 rounded transition-colors"
+      onClick={() => setEditing(true)} title="Click to edit">
+      {val || <span className="text-gray-300 italic">Trade name...</span>}
+    </div>
+  )
   return (
     <div ref={wrapperRef} className="relative">
-      <input
-        autoFocus
-        className="w-full px-1.5 py-0.5 text-xs border border-blue-400 rounded focus:outline-none"
-        value={val}
-        onChange={handleInput}
-        onKeyDown={e => {
-          if (e.key === 'Enter') commit()
-          if (e.key === 'Escape') { setEditing(false); setSuggestions([]); setVal(row.trade_name ?? '') }
-        }}
+      <input autoFocus className="w-full px-1.5 py-0.5 text-xs border border-blue-400 rounded focus:outline-none"
+        value={val} onChange={handleInput}
+        onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setEditing(false); setSuggestions([]); setVal(row.trade_name ?? '') } }}
       />
       {suggestions.length > 0 && (
         <div className="absolute left-0 top-full mt-0.5 z-50 bg-white border border-gray-200 rounded-lg shadow-lg min-w-[280px] max-h-48 overflow-y-auto">
           {suggestions.map((item, i) => (
-            <button
-              key={i}
-              type="button"
-              className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 border-b border-gray-100 last:border-0"
-              onMouseDown={e => { e.preventDefault(); selectSuggestion(item) }}
-            >
+            <button key={i} type="button" className="w-full text-left px-3 py-2 text-xs hover:bg-blue-50 border-b border-gray-100 last:border-0"
+              onMouseDown={e => { e.preventDefault(); selectSuggestion(item) }}>
               <div className="font-medium text-gray-800">{item.trade_name}</div>
               <div className="text-gray-400">{item.inci}{item.cas ? ` · ${item.cas}` : ''}</div>
             </button>
@@ -146,113 +125,135 @@ function AutocompleteCell({ row, onUpdate }) {
   )
 }
 
-// ── Ingredients Table ─────────────────────────────────────────────────────────
+// ── IngredientsTable ──────────────────────────────────────────────────────────
 
-function IngredientsTable({ rows, bulkSize, onChange }) {
-  function update(id, field, val) {
-    onChange(rows.map(r => r.id === id ? { ...r, [field]: val } : r))
+function IngredientsTable({ rows, bulkSize, qsEnabled, onQsToggle, colOrder, onColOrderChange, onChange }) {
+  const dragRowRef = useRef(null)
+  const dragColRef = useRef(null)
+  const [dragOverRow, setDragOverRow] = useState(null)
+  const [dragOverCol, setDragOverCol] = useState(null)
+
+  const effRows = getEffRows(rows, qsEnabled)
+  const total = effRows.reduce((s, r) => s + (parseFloat(r.percent) || 0), 0)
+
+  const blankRow = (part = 'A') => ({ id: uid(), part, trade_name: '', description: '', inci_name: '', cas_no: '', percent: '', supplier: '', function: '', compliance: '' })
+
+  function upd(id, field, val) { onChange(rows.map(r => r.id === id ? { ...r, [field]: val } : r)) }
+  function addRow() { onChange([...rows, blankRow(rows.length ? rows[rows.length - 1].part : 'A')]) }
+  function addRowAfter(idx) { const n = [...rows]; n.splice(idx + 1, 0, blankRow(rows[idx]?.part || 'A')); onChange(n) }
+  function removeRow(id) { if (rows.length <= 1) return; onChange(rows.filter(r => r.id !== id)) }
+
+  function onRowDragStart(e, idx) { dragRowRef.current = idx; e.dataTransfer.effectAllowed = 'move' }
+  function onRowDragOver(e, idx) { e.preventDefault(); setDragOverRow(idx) }
+  function onRowDrop(e, idx) {
+    e.preventDefault(); setDragOverRow(null)
+    const from = dragRowRef.current; if (from === null || from === idx) return
+    const n = [...rows]; const [m] = n.splice(from, 1); n.splice(idx, 0, m); onChange(n); dragRowRef.current = null
   }
+  function onRowDragEnd() { dragRowRef.current = null; setDragOverRow(null) }
 
-  function addRow() {
-    const lastPart = rows.length ? rows[rows.length - 1].part : 'A'
-    onChange([...rows, { id: uid(), part: lastPart, trade_name: '', inci_name: '', cas_no: '', percent: '', supplier: '', function: '', compliance: '' }])
+  function onColDragStart(e, key) { dragColRef.current = key; e.dataTransfer.effectAllowed = 'move' }
+  function onColDragOver(e, key) { e.preventDefault(); setDragOverCol(key) }
+  function onColDrop(e, key) {
+    e.preventDefault(); setDragOverCol(null)
+    const from = dragColRef.current; if (!from || from === key) return
+    const n = [...colOrder]; const fi = n.indexOf(from), ti = n.indexOf(key)
+    if (fi < 0 || ti < 0) return; n.splice(fi, 1); n.splice(ti, 0, from); onColOrderChange(n); dragColRef.current = null
   }
+  function onColDragEnd() { dragColRef.current = null; setDragOverCol(null) }
 
-  function addRowAfter(idx) {
-    const next = [...rows]
-    next.splice(idx + 1, 0, { id: uid(), part: rows[idx]?.part || 'A', trade_name: '', inci_name: '', cas_no: '', percent: '', supplier: '', function: '', compliance: '' })
-    onChange(next)
+  function cellFor(key, row, isQsRow) {
+    switch (key) {
+      case 'part':        return <EditCell value={row.part || ''} onChange={v => upd(row.id, 'part', v)} placeholder="A" align="center" />
+      case 'trade_name':  return <AutocompleteCell row={row} onUpdate={u => onChange(rows.map(r => r.id === row.id ? { ...r, ...u } : r))} />
+      case 'description': return <EditCell value={row.description || ''} onChange={v => upd(row.id, 'description', v)} placeholder="Description..." />
+      case 'inci_name':   return <EditCell value={row.inci_name || ''} onChange={v => upd(row.id, 'inci_name', v)} placeholder="INCI name..." />
+      case 'cas_no':      return <EditCell value={row.cas_no || ''} onChange={v => upd(row.id, 'cas_no', v)} placeholder="e.g. 7732-18-5" />
+      case 'percent':
+        if (isQsRow) return (
+          <div className="min-h-[22px] px-1.5 py-0.5 text-xs flex items-center justify-end gap-1">
+            <span className="text-blue-700 font-semibold">{Number(row.percent).toFixed(4)}</span>
+            <span className="text-[10px] bg-blue-100 text-blue-500 px-1 py-0.5 rounded leading-none">QS</span>
+          </div>
+        )
+        return <EditCell value={row.percent || ''} onChange={v => upd(row.id, 'percent', v)} type="number" placeholder="0.00" align="right" />
+      case 'bulk':
+        return <div className="min-h-[22px] px-2 py-0.5 text-xs text-right text-gray-600">{calcBulk(row.percent, bulkSize) || '—'}</div>
+      case 'supplier':    return <EditCell value={row.supplier || ''} onChange={v => upd(row.id, 'supplier', v)} placeholder="Supplier..." />
+      case 'function':    return <EditCell value={row.function || ''} onChange={v => upd(row.id, 'function', v)} placeholder="Function..." />
+      case 'compliance':  return <EditCell value={row.compliance || ''} onChange={v => upd(row.id, 'compliance', v)} placeholder="e.g. EU, ASEAN..." />
+      default: return null
+    }
   }
-
-  function removeRow(id) {
-    if (rows.length <= 1) return
-    onChange(rows.filter(r => r.id !== id))
-  }
-
-  function moveRow(idx, dir) {
-    const next = [...rows]
-    const swap = idx + dir
-    if (swap < 0 || swap >= next.length) return
-    ;[next[idx], next[swap]] = [next[swap], next[idx]]
-    onChange(next)
-  }
-
-  const total = rows.reduce((s, r) => s + (parseFloat(r.percent) || 0), 0)
 
   return (
     <div className="overflow-x-auto">
+      <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none text-gray-600 mb-2 no-print">
+        <input type="checkbox" checked={!!qsEnabled} onChange={e => onQsToggle(e.target.checked)} className="rounded" />
+        Auto QS for ingredient #1 (balance to 100%)
+      </label>
       <table className="w-full text-xs border-collapse">
         <thead>
           <tr className="bg-gray-50">
-            <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-gray-700 w-8">No</th>
-            <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-gray-700 w-10">Part</th>
-            <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700 w-32">Trade Name</th>
-            <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700">INCI Name</th>
-            <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700 w-24">CAS No.</th>
-            <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-gray-700 w-14">%</th>
-            <th className="border border-gray-300 px-2 py-2 text-center font-semibold text-gray-700 w-20">
-              Bulk ({parseFloat(bulkSize) > 0 ? `${bulkSize}g` : 'g'})
-            </th>
-            <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700 w-28">Principal</th>
-            <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700">Function</th>
-            <th className="border border-gray-300 px-2 py-2 text-left font-semibold text-gray-700 w-28">Compliance</th>
-            <th className="border border-gray-300 px-1 py-2 w-16 text-center text-gray-400 font-normal no-print">Actions</th>
+            <th className="border border-gray-200 px-1 py-2 w-5 no-print" title="Drag row to reorder" />
+            <th className="border border-gray-200 px-2 py-2 text-center font-semibold text-gray-700 w-8">No</th>
+            {colOrder.map(key => (
+              <th key={key}
+                className={`border border-gray-200 px-2 py-2 text-center font-semibold text-gray-700 cursor-grab select-none ${COL_DEFS[key]?.w || ''} ${dragOverCol === key ? 'bg-blue-100' : ''}`}
+                draggable
+                onDragStart={e => onColDragStart(e, key)}
+                onDragOver={e => onColDragOver(e, key)}
+                onDrop={e => onColDrop(e, key)}
+                onDragEnd={onColDragEnd}
+                title="Drag to reorder column"
+              >
+                {key === 'bulk' ? `Bulk (${parseFloat(bulkSize) > 0 ? `${bulkSize}g` : 'g'})` : COL_DEFS[key]?.label}
+              </th>
+            ))}
+            <th className="border border-gray-200 px-1 py-2 w-14 text-center text-gray-400 font-normal no-print">Act.</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, idx) => (
-            <tr key={row.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'}>
-              <td className="border border-gray-300 px-2 py-1 text-center text-gray-500">{idx + 1}</td>
-              <td className="border border-gray-300 px-1 py-1">
-                <EditCell value={row.part} onChange={v => update(row.id, 'part', v)} placeholder="A" align="center" />
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                <AutocompleteCell
-                  row={row}
-                  onUpdate={updates => onChange(rows.map(r => r.id === row.id ? { ...r, ...updates } : r))}
-                />
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                <EditCell value={row.inci_name} onChange={v => update(row.id, 'inci_name', v)} placeholder="INCI name..." />
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                <EditCell value={row.cas_no} onChange={v => update(row.id, 'cas_no', v)} placeholder="e.g. 7732-18-5" />
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                <EditCell value={row.percent} onChange={v => update(row.id, 'percent', v)} type="number" placeholder="0.00" align="right" />
-              </td>
-              <td className="border border-gray-300 px-2 py-1 text-right text-gray-600 bg-blue-50/30">
-                {calcBulk(row.percent, bulkSize) || '—'}
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                <EditCell value={row.supplier} onChange={v => update(row.id, 'supplier', v)} placeholder="Supplier..." />
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                <EditCell value={row.function} onChange={v => update(row.id, 'function', v)} placeholder="Function..." />
-              </td>
-              <td className="border border-gray-300 px-1 py-1">
-                <EditCell value={row.compliance} onChange={v => update(row.id, 'compliance', v)} placeholder="e.g. EU, ASEAN..." />
-              </td>
-              <td className="border border-gray-300 px-1 py-1 no-print">
+          {effRows.map((row, idx) => (
+            <tr key={row.id}
+              className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'} ${dragOverRow === idx ? 'ring-2 ring-inset ring-blue-300' : ''}`}
+              draggable
+              onDragStart={e => onRowDragStart(e, idx)}
+              onDragOver={e => onRowDragOver(e, idx)}
+              onDrop={e => onRowDrop(e, idx)}
+              onDragEnd={onRowDragEnd}
+            >
+              <td className="border border-gray-200 px-1 py-1 text-center text-gray-300 cursor-grab no-print select-none" title="Drag to reorder">≡</td>
+              <td className="border border-gray-200 px-2 py-1 text-center text-gray-500">{idx + 1}</td>
+              {colOrder.map(key => (
+                <td key={key} className={`border border-gray-200 px-1 py-1 ${key === 'bulk' ? 'bg-blue-50/30' : ''}`}>
+                  {cellFor(key, row, qsEnabled && idx === 0)}
+                </td>
+              ))}
+              <td className="border border-gray-200 px-1 py-1 no-print">
                 <div className="flex items-center justify-center gap-0.5">
-                  <button onClick={() => moveRow(idx, -1)} className="text-gray-300 hover:text-gray-600 px-0.5" title="Move up">↑</button>
-                  <button onClick={() => moveRow(idx, 1)} className="text-gray-300 hover:text-gray-600 px-0.5" title="Move down">↓</button>
                   <button onClick={() => addRowAfter(idx)} className="text-blue-300 hover:text-blue-600 px-0.5" title="Insert row below">+</button>
                   <button onClick={() => removeRow(row.id)} className="text-red-300 hover:text-red-600 px-0.5" title="Delete row">✕</button>
                 </div>
               </td>
             </tr>
           ))}
-          {/* Total row */}
           <tr className="bg-gray-100 font-semibold">
-            <td colSpan={5} className="border border-gray-300 px-2 py-1.5 text-right text-xs text-gray-600">Total</td>
-            <td className={`border border-gray-300 px-2 py-1.5 text-right text-xs ${Math.abs(total - 100) < 0.01 ? 'text-green-700' : total > 100 ? 'text-red-600' : 'text-amber-600'}`}>
-              {total.toFixed(2)}%
-            </td>
-            <td className="border border-gray-300 px-2 py-1.5 text-right text-xs text-gray-600">
-              {parseFloat(bulkSize) > 0 ? `${(total / 100 * parseFloat(bulkSize)).toFixed(2)}g` : '—'}
-            </td>
-            <td colSpan={4} className="border border-gray-300" />
+            <td className="border border-gray-200" />
+            <td className="border border-gray-200 px-2 py-1.5 text-right text-xs text-gray-600">Total</td>
+            {colOrder.map(key => (
+              <td key={key} className="border border-gray-200 px-2 py-1.5 text-xs">
+                {key === 'percent' && (
+                  <div className={`text-right font-semibold ${Math.abs(total - 100) < 0.01 ? 'text-green-700' : total > 100 ? 'text-red-600' : 'text-amber-600'}`}>
+                    {total.toFixed(2)}%
+                  </div>
+                )}
+                {key === 'bulk' && parseFloat(bulkSize) > 0 && (
+                  <div className="text-right text-gray-600">{(total / 100 * parseFloat(bulkSize)).toFixed(2)}g</div>
+                )}
+              </td>
+            ))}
+            <td className="border border-gray-200" />
           </tr>
         </tbody>
       </table>
@@ -266,7 +267,7 @@ function IngredientsTable({ rows, bulkSize, onChange }) {
   )
 }
 
-// ── Procedure Editor ──────────────────────────────────────────────────────────
+// ── ProcedureEditor ───────────────────────────────────────────────────────────
 
 function ProcedureEditor({ steps, onChange }) {
   function update(id, val) { onChange(steps.map(s => s.id === id ? { ...s, text: val } : s)) }
@@ -278,19 +279,13 @@ function ProcedureEditor({ steps, onChange }) {
     ;[next[idx], next[swap]] = [next[swap], next[idx]]
     onChange(next)
   }
-
   return (
     <div className="space-y-2">
       {steps.map((s, idx) => (
         <div key={s.id} className="flex items-start gap-2 group">
           <span className="text-xs font-semibold text-gray-500 mt-2 w-5 shrink-0">{idx + 1}</span>
-          <textarea
-            className="input flex-1 resize-none text-sm leading-relaxed"
-            rows={2}
-            value={s.text}
-            onChange={e => update(s.id, e.target.value)}
-            placeholder={`Step ${idx + 1}...`}
-          />
+          <textarea className="input flex-1 resize-none text-sm leading-relaxed" rows={2} value={s.text}
+            onChange={e => update(s.id, e.target.value)} placeholder={`Step ${idx + 1}...`} />
           <div className="flex flex-col gap-0.5 mt-1 opacity-0 group-hover:opacity-100 transition-opacity no-print">
             <button onClick={() => move(idx, -1)} className="text-gray-300 hover:text-gray-600 text-xs">↑</button>
             <button onClick={() => move(idx, 1)} className="text-gray-300 hover:text-gray-600 text-xs">↓</button>
@@ -303,13 +298,12 @@ function ProcedureEditor({ steps, onChange }) {
   )
 }
 
-// ── Specifications Editor ─────────────────────────────────────────────────────
+// ── SpecsEditor ───────────────────────────────────────────────────────────────
 
 function SpecsEditor({ specs, onChange }) {
   function update(id, field, val) { onChange(specs.map(s => s.id === id ? { ...s, [field]: val } : s)) }
   function add() { onChange([...specs, { id: uid(), property: '', value: '' }]) }
   function remove(id) { onChange(specs.filter(s => s.id !== id)) }
-
   return (
     <div className="space-y-2">
       {specs.map(s => (
@@ -327,7 +321,7 @@ function SpecsEditor({ specs, onChange }) {
   )
 }
 
-// ── Image Uploader ────────────────────────────────────────────────────────────
+// ── ImageUploader ─────────────────────────────────────────────────────────────
 
 function ImageUploader({ label, url, filename, onUpload }) {
   const ref = useRef()
@@ -341,9 +335,7 @@ function ImageUploader({ label, url, filename, onUpload }) {
     <div>
       <p className="text-xs font-medium text-gray-500 mb-1">{label}</p>
       <div className="flex items-center gap-3">
-        {url && (
-          <img src={url} alt={label} className="h-16 object-contain rounded border border-gray-200 bg-white p-1" />
-        )}
+        {url && <img src={url} alt={label} className="h-16 object-contain rounded border border-gray-200 bg-white p-1" />}
         <button className="btn-secondary text-xs" onClick={() => ref.current.click()} disabled={uploading}>
           {uploading ? 'Uploading...' : (url || filename) ? 'Replace' : `Upload ${label}`}
         </button>
@@ -363,6 +355,7 @@ export default function FormulationSheet() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [genPDF, setGenPDF] = useState(false)
+  const [duplicating, setDuplicating] = useState(false)
   const saveTimer = useRef(null)
 
   useEffect(() => {
@@ -400,25 +393,68 @@ export default function FormulationSheet() {
     try { await generateFormulationPDF(form) } finally { setGenPDF(false) }
   }
 
+  async function handleDuplicate() {
+    setDuplicating(true)
+    try {
+      const created = await createFormulation({ product_name: `Copy of ${form.product_name || 'Formulation'}` })
+      const { id: _fid, logo_url, logo_filename, ref_image_url, ref_image_filename, ...rest } = form
+      await updateFormulation(created.id, {
+        ...rest,
+        product_name: `Copy of ${form.product_name || 'Formulation'}`,
+        ref_no: '',
+      })
+      navigate(`/formulations/${created.id}`)
+    } finally { setDuplicating(false) }
+  }
+
+  function downloadCSV() {
+    const cols = mergeColOrder(form.col_order)
+    const effRows = getEffRows(form.ingredients || [], form.qs_enabled)
+    const hdr = ['No', ...cols.map(k => k === 'bulk' ? `Bulk (${form.bulk_size || ''}g)` : (COL_DEFS[k]?.label || k))]
+    const lines = [
+      hdr.join(','),
+      ...effRows.map((row, i) => [
+        i + 1,
+        ...cols.map(k => {
+          const v = k === 'bulk' ? (calcBulk(row.percent, form.bulk_size) || '') : (row[k] ?? '')
+          return `"${String(v).replace(/"/g, '""')}"`
+        })
+      ].join(','))
+    ]
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(blob),
+      download: `${(form.product_name || 'formulation').replace(/[^a-z0-9]/gi, '_')}.csv`,
+    })
+    a.click(); URL.revokeObjectURL(a.href)
+  }
+
   if (!form) return <div className="text-center py-20 text-gray-400">Loading...</div>
+
+  const colOrder = mergeColOrder(form.col_order)
 
   return (
     <div className="space-y-5">
       {/* Toolbar */}
-      <div className="flex items-center justify-between no-print">
+      <div className="flex items-center justify-between flex-wrap gap-2 no-print">
         <div className="flex items-center gap-2">
           <button className="btn-secondary text-xs" onClick={() => navigate('/formulations')}>← Back</button>
           <span className="text-xs text-gray-400">{saving ? 'Saving...' : saved ? '✓ Saved' : 'Auto-saves'}</span>
         </div>
-        <button className="btn-primary" onClick={handlePDF} disabled={genPDF}>
-          {genPDF ? '⏳ Generating...' : '⬇ Download PDF'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button className="btn-secondary text-xs" onClick={downloadCSV}>⬇ CSV</button>
+          <button className="btn-secondary text-xs" onClick={handleDuplicate} disabled={duplicating}>
+            {duplicating ? 'Duplicating...' : '⧉ Duplicate'}
+          </button>
+          <button className="btn-primary" onClick={handlePDF} disabled={genPDF}>
+            {genPDF ? '⏳ Generating...' : '⬇ Download PDF'}
+          </button>
+        </div>
       </div>
 
       {/* ── Letterhead ───────────────────────────────────────────────────── */}
       <div className="card p-6">
         <div className="flex items-start justify-between gap-6 mb-5">
-          {/* Company info */}
           <div className="flex-1 space-y-1">
             <input className="text-lg font-bold text-gray-900 border-0 border-b border-transparent hover:border-gray-300 focus:border-blue-400 focus:outline-none w-full bg-transparent"
               value={form.company_name} onChange={e => update('company_name', e.target.value)} placeholder="Company Name" />
@@ -437,7 +473,6 @@ export default function FormulationSheet() {
               </div>
             </div>
           </div>
-          {/* Logo */}
           <div className="shrink-0">
             <ImageUploader label="Logo" url={form.logo_url} filename={form.logo_filename} onUpload={handleLogoUpload} />
           </div>
@@ -460,8 +495,25 @@ export default function FormulationSheet() {
               <textarea className="input resize-none" rows={2} value={form.description}
                 onChange={e => update('description', e.target.value)} placeholder="Product description..." />
             </div>
+            <div>
+              <label className="label">Application</label>
+              <input className="input" value={form.application || ''}
+                onChange={e => update('application', e.target.value)} placeholder="e.g. Moisturizer, Serum, Cleanser..." />
+            </div>
           </div>
           <div className="space-y-3">
+            <div>
+              <label className="label">Status</label>
+              <select className="input" value={form.status || ''} onChange={e => update('status', e.target.value)}>
+                <option value="">— Select Status —</option>
+                {STATUS_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {form.status && (
+                <span className={`inline-block mt-1 text-xs px-2 py-0.5 rounded-full font-medium border ${STATUS_COLORS[form.status] || ''}`}>
+                  {form.status}
+                </span>
+              )}
+            </div>
             <div>
               <label className="label">Batch / Bulk Size (g)</label>
               <input className="input" type="number" value={form.bulk_size}
@@ -497,6 +549,10 @@ export default function FormulationSheet() {
         <IngredientsTable
           rows={form.ingredients || []}
           bulkSize={form.bulk_size}
+          qsEnabled={!!form.qs_enabled}
+          onQsToggle={v => update('qs_enabled', v)}
+          colOrder={colOrder}
+          onColOrderChange={order => update('col_order', order)}
           onChange={rows => update('ingredients', rows)}
         />
       </div>
@@ -504,27 +560,20 @@ export default function FormulationSheet() {
       {/* ── Procedure ────────────────────────────────────────────────────── */}
       <div className="card p-6">
         <h3 className="font-semibold text-gray-900 mb-3">Procedure</h3>
-        <ProcedureEditor
-          steps={form.procedure || []}
-          onChange={steps => update('procedure', steps)}
-        />
+        <ProcedureEditor steps={form.procedure || []} onChange={steps => update('procedure', steps)} />
       </div>
 
       {/* ── Product Specs + Ref Image ─────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <div className="card p-6">
           <h3 className="font-semibold text-gray-900 mb-3">Product Specifications</h3>
-          <SpecsEditor
-            specs={form.specifications || []}
-            onChange={specs => update('specifications', specs)}
-          />
+          <SpecsEditor specs={form.specifications || []} onChange={specs => update('specifications', specs)} />
           <div className="mt-4">
             <label className="label">Remarks</label>
             <textarea className="input resize-none text-sm" rows={2} value={form.remarks}
               onChange={e => update('remarks', e.target.value)} placeholder="Additional remarks..." />
           </div>
         </div>
-
         <div className="card p-6">
           <h3 className="font-semibold text-gray-900 mb-3">Reference Image</h3>
           <ImageUploader label="Product Image" url={form.ref_image_url} filename={form.ref_image_filename} onUpload={handleRefImageUpload} />
