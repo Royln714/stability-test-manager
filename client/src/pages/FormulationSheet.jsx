@@ -108,6 +108,7 @@ function AutocompleteCell({ row, onUpdate }) {
     <div ref={wrapperRef} className="relative">
       <input autoFocus className="w-full px-1.5 py-0.5 text-xs border border-blue-400 rounded focus:outline-none"
         value={val} onChange={handleInput}
+        onBlur={commit}
         onKeyDown={e => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setEditing(false); setSuggestions([]); setVal(row.trade_name ?? '') } }}
       />
       {suggestions.length > 0 && (
