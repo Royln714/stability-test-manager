@@ -217,13 +217,16 @@ function IngredientsTable({ rows, bulkSize, qsEnabled, onQsToggle, colOrder, onC
           {effRows.map((row, idx) => (
             <tr key={row.id}
               className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/40'} ${dragOverRow === idx ? 'ring-2 ring-inset ring-blue-300' : ''}`}
-              draggable
-              onDragStart={e => onRowDragStart(e, idx)}
               onDragOver={e => onRowDragOver(e, idx)}
               onDrop={e => onRowDrop(e, idx)}
-              onDragEnd={onRowDragEnd}
             >
-              <td className="border border-gray-200 px-1 py-1 text-center text-gray-300 cursor-grab no-print select-none" title="Drag to reorder">≡</td>
+              <td
+                className="border border-gray-200 px-1 py-1 text-center text-gray-300 cursor-grab no-print select-none"
+                title="Drag to reorder"
+                draggable
+                onDragStart={e => onRowDragStart(e, idx)}
+                onDragEnd={onRowDragEnd}
+              >≡</td>
               <td className="border border-gray-200 px-2 py-1 text-center text-gray-500">{idx + 1}</td>
               {colOrder.map(key => (
                 <td key={key} className={`border border-gray-200 px-1 py-1 ${key === 'bulk' ? 'bg-blue-50/30' : ''}`}>
