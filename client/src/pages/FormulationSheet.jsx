@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { getFormulation, updateFormulation, createFormulation, uploadLogo, uploadRefImage, getSamples } from '../api'
 import { generateFormulationPDF } from '../pdfReport'
@@ -360,25 +360,27 @@ export default function FormulationSheet() {
   const [genPDF, setGenPDF] = useState(false)
   const [duplicating, setDuplicating] = useState(false)
   const saveTimer = useRef(null)
+  const formDirty = useRef(false)
 
   useEffect(() => {
     getFormulation(id).then(setForm).catch(() => navigate('/formulations'))
     getSamples().then(setSamples).catch(() => {})
   }, [id])
 
-  const autoSave = useCallback((data) => {
+  useEffect(() => {
+    if (!form || !formDirty.current) return
     clearTimeout(saveTimer.current)
     saveTimer.current = setTimeout(async () => {
       setSaving(true)
-      try { await updateFormulation(id, data); setSaved(true); setTimeout(() => setSaved(false), 2000) }
+      try { await updateFormulation(id, form); setSaved(true); setTimeout(() => setSaved(false), 2000) }
       finally { setSaving(false) }
     }, 800)
-  }, [id])
+    return () => clearTimeout(saveTimer.current)
+  }, [form, id])
 
   function update(field, val) {
-    const next = { ...form, [field]: val }
-    setForm(next)
-    autoSave(next)
+    formDirty.current = true
+    setForm(prev => ({ ...prev, [field]: val }))
   }
 
   async function handleLogoUpload(file) {
