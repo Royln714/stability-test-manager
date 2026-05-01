@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { getSample, updateSample, updateSampleStatus, upsertResult, deleteResult, uploadImage, updateImageCaption, deleteImage, getFormulations, duplicateSample } from '../api'
 import DataEntryModal from '../components/DataEntryModal'
 import Charts from '../components/Charts'
-import { generatePDF } from '../pdfReport'
+import { generatePDF, generateAnalysisPDF } from '../pdfReport'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -96,7 +96,7 @@ function InlineResultCell({ value, onSave, type = 'number', specMin, specMax, de
   }
 
   const display = type === 'number' && value !== null && value !== undefined && value !== ''
-    ? Number(value).toFixed(decimals) : value
+    ? (decimals === null ? String(Number(value)) : Number(value).toFixed(decimals)) : value
   const sc = type === 'number' ? specClass(value, specMin, specMax) : ''
 
   if (editing) {
@@ -223,9 +223,9 @@ function ResultsTable({ results, temps, onCellClick, onClearRow, onSaveNotes, on
                   return (
                     <Fragment key={tempIdx}>
                       <InlineResultCell value={row?.[`ph_${suf}`]} onSave={v => onSaveCell(tp, `ph_${suf}`, v)} specMin={specPhMin} specMax={specPhMax} />
-                      <InlineResultCell value={row?.[`viscosity_${suf}`]} onSave={v => onSaveCell(tp, `viscosity_${suf}`, v)} specMin={specViscMin} specMax={specViscMax} />
-                      <InlineResultCell value={row?.[`sg_${suf}`]} onSave={v => onSaveCell(tp, `sg_${suf}`, v)} />
-                      <InlineResultCell value={row?.[`turbidity_${suf}`]} onSave={v => onSaveCell(tp, `turbidity_${suf}`, v)} />
+                      <InlineResultCell value={row?.[`viscosity_${suf}`]} onSave={v => onSaveCell(tp, `viscosity_${suf}`, v)} decimals={null} specMin={specViscMin} specMax={specViscMax} />
+                      <InlineResultCell value={row?.[`sg_${suf}`]} onSave={v => onSaveCell(tp, `sg_${suf}`, v)} decimals={null} />
+                      <InlineResultCell value={row?.[`turbidity_${suf}`]} onSave={v => onSaveCell(tp, `turbidity_${suf}`, v)} decimals={null} />
                       <InlineResultCell value={row?.[`spindle_${suf}`]} type="text" onSave={v => onSaveCell(tp, `spindle_${suf}`, v)} />
                       <InlineResultCell value={row?.[`rpm_${suf}`]} onSave={v => onSaveCell(tp, `rpm_${suf}`, v)} decimals={0} />
                     </Fragment>
@@ -467,9 +467,173 @@ function EditSampleModal({ sample, onClose, onSave }) {
   )
 }
 
+// ── Microscope Image Gallery ──────────────────────────────────────────────────
+
+function MicroscopeGallery({ sampleId, images, onUpdate }) {
+  const fileRefs = useRef({})
+  const [uploading, setUploading] = useState(null)
+  const [lightbox, setLightbox] = useState(null)
+
+  async function handleUpload(tp, e) {
+    const files = Array.from(e.target.files)
+    if (!files.length) return
+    setUploading(tp)
+    try {
+      for (const f of files) await uploadImage(sampleId, f, `${TIME_LABELS[tp]} microscope`, 'microscope', tp)
+    } finally { setUploading(null); e.target.value = ''; onUpdate() }
+  }
+
+  async function handleDelete(imgId) {
+    if (!confirm('Delete this microscope image?')) return
+    await deleteImage(imgId); onUpdate()
+  }
+
+  return (
+    <div>
+      <h3 className="font-semibold text-gray-800 mb-4">Microscope Images by Time Point</h3>
+      <div className="space-y-3">
+        {TIME_POINTS.map(tp => {
+          const tpImgs = images.filter(img =>
+            img.category === 'microscope' && img.time_point === tp &&
+            /\.(jpe?g|png|gif|webp)$/i.test(img.original_name || img.filename || ''))
+          return (
+            <div key={tp} className="rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-semibold text-blue-700">{TIME_LABELS[tp]}</span>
+                <div>
+                  <input ref={el => fileRefs.current[tp] = el} type="file" className="hidden"
+                    accept="image/*" multiple onChange={e => handleUpload(tp, e)} />
+                  <button className="btn-secondary text-xs py-1"
+                    onClick={() => fileRefs.current[tp]?.click()} disabled={uploading === tp}>
+                    {uploading === tp ? 'Uploading...' : '+ Add'}
+                  </button>
+                </div>
+              </div>
+              {tpImgs.length === 0
+                ? <p className="text-xs text-gray-400 italic">No microscope images for this time point</p>
+                : (
+                  <div className="flex flex-wrap gap-2">
+                    {tpImgs.map(img => (
+                      <div key={img.id} className="group relative w-24 h-24 rounded-lg overflow-hidden border border-gray-200 cursor-pointer"
+                        onClick={() => setLightbox(img)}>
+                        <img src={img.url} alt={img.caption} className="w-full h-full object-cover" />
+                        <button onClick={e => { e.stopPropagation(); handleDelete(img.id) }}
+                          className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+            </div>
+          )
+        })}
+      </div>
+      {lightbox && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
+          <div className="relative max-w-4xl max-h-full">
+            <img src={lightbox.url} alt={lightbox.caption} className="max-w-full max-h-screen object-contain rounded-lg" />
+            {lightbox.caption && <p className="text-center text-white text-sm mt-2">{lightbox.caption}</p>}
+            <button className="absolute -top-3 -right-3 w-8 h-8 bg-white text-gray-800 rounded-full font-bold" onClick={() => setLightbox(null)}>✕</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Analysis Report Form ──────────────────────────────────────────────────────
+
+const DEFAULT_DISCLAIMER = 'This stability analysis report is intended for internal research and development purposes only. The results presented are based on controlled laboratory testing conditions and may not reflect real-world performance. All data should be reviewed by a qualified chemist before use in product commercialisation decisions.'
+
+function AnalysisReport({ sample, onGeneratePDF, generating }) {
+  const storageKey = `analysis_${sample.id}`
+  const [analysis, setAnalysis] = useState(() => {
+    try {
+      const saved = localStorage.getItem(storageKey)
+      return saved ? JSON.parse(saved) : { comments: {}, summary: '', conclusion: '', disclaimer: DEFAULT_DISCLAIMER }
+    } catch { return { comments: {}, summary: '', conclusion: '', disclaimer: DEFAULT_DISCLAIMER } }
+  })
+
+  function update(patch) {
+    const next = { ...analysis, ...patch }
+    setAnalysis(next)
+    try { localStorage.setItem(storageKey, JSON.stringify(next)) } catch {}
+  }
+
+  const microImages = (sample.images || []).filter(img => img.category === 'microscope')
+
+  return (
+    <div className="space-y-5">
+      <div className="card p-5 flex items-center justify-between">
+        <div>
+          <h3 className="font-semibold text-gray-900">Microscope Analysis Report</h3>
+          <p className="text-sm text-gray-500 mt-0.5">Portrait A4 · images, comments, summary, conclusion & disclaimer</p>
+        </div>
+        <button className="btn-primary" onClick={() => onGeneratePDF(analysis)} disabled={generating}>
+          {generating ? '⏳ Generating...' : '⬇ Download PDF'}
+        </button>
+      </div>
+
+      <div className="card overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-100">
+          <p className="font-semibold text-sm text-gray-700">Time Point Observations</p>
+          <p className="text-xs text-gray-400 mt-0.5">Upload microscope images in the Images tab. Add a comment per time point here.</p>
+        </div>
+        <div className="divide-y divide-gray-100">
+          {TIME_POINTS.map(tp => {
+            const micro = microImages.find(img =>
+              img.time_point === tp &&
+              /\.(jpe?g|png|gif|webp)$/i.test(img.original_name || img.filename || ''))
+            return (
+              <div key={tp} className="p-5 flex gap-4">
+                <div className="w-28 shrink-0 text-center">
+                  {micro
+                    ? <img src={micro.url} alt="" className="w-28 h-24 object-cover rounded-lg border border-gray-200" />
+                    : <div className="w-28 h-24 rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-400 px-2 text-center">No microscope image</div>}
+                  <p className="text-xs font-semibold text-blue-700 mt-1.5">{TIME_LABELS[tp]}</p>
+                </div>
+                <div className="flex-1">
+                  <label className="label">Observation / Comment</label>
+                  <textarea className="input resize-none w-full" rows={3}
+                    placeholder={`Observations for ${TIME_LABELS[tp]}...`}
+                    value={analysis.comments[tp] || ''}
+                    onChange={e => update({ comments: { ...analysis.comments, [tp]: e.target.value } })} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <div className="card p-5">
+        <p className="font-semibold text-sm text-gray-700 mb-3">Summary</p>
+        <textarea className="input resize-none w-full" rows={5}
+          placeholder="Summarise the overall stability findings across all time points..."
+          value={analysis.summary}
+          onChange={e => update({ summary: e.target.value })} />
+      </div>
+
+      <div className="card p-5">
+        <p className="font-semibold text-sm text-gray-700 mb-3">Conclusion</p>
+        <textarea className="input resize-none w-full" rows={5}
+          placeholder="State the final conclusion and product recommendation..."
+          value={analysis.conclusion}
+          onChange={e => update({ conclusion: e.target.value })} />
+      </div>
+
+      <div className="card p-5">
+        <p className="font-semibold text-sm text-gray-700 mb-1">Disclaimer</p>
+        <p className="text-xs text-gray-400 mb-2">Appears at the bottom of the PDF report</p>
+        <textarea className="input resize-none w-full text-xs text-gray-600" rows={3}
+          value={analysis.disclaimer}
+          onChange={e => update({ disclaimer: e.target.value })} />
+      </div>
+    </div>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-const TABS = ['Data', 'Charts', 'Images', 'Report']
+const TABS = ['Data', 'Charts', 'Images', 'Report', 'Analysis']
 
 export default function SampleDetail() {
   const { id } = useParams()
@@ -480,6 +644,7 @@ export default function SampleDetail() {
   const [entry, setEntry] = useState(null)
   const [editOpen, setEditOpen] = useState(false)
   const [genPDF, setGenPDF] = useState(false)
+  const [genAnalysis, setGenAnalysis] = useState(false)
   const [linkedFormulation, setLinkedFormulation] = useState(null)
 
   const load = async () => {
@@ -600,6 +765,12 @@ export default function SampleDetail() {
     finally { setGenPDF(false) }
   }
 
+  async function handleGenerateAnalysisPDF(analysisData) {
+    setGenAnalysis(true)
+    try { await generateAnalysisPDF({ ...sample, temps }, analysisData) }
+    finally { setGenAnalysis(false) }
+  }
+
   if (loading) return <div className="text-center py-20 text-gray-400">Loading...</div>
   if (!sample) return null
 
@@ -706,7 +877,27 @@ export default function SampleDetail() {
 
       {tab === 'Charts' && <Charts results={sample.results} temps={temps} />}
 
-      {tab === 'Images' && <ImageGallery sampleId={id} images={sample.images} onUpdate={load} />}
+      {tab === 'Images' && (
+        <div className="space-y-8">
+          <MicroscopeGallery sampleId={id} images={sample.images} onUpdate={load} />
+          <div>
+            <h3 className="font-semibold text-gray-800 mb-4">General Images</h3>
+            <ImageGallery
+              sampleId={id}
+              images={sample.images.filter(img => img.category !== 'microscope')}
+              onUpdate={load}
+            />
+          </div>
+        </div>
+      )}
+
+      {tab === 'Analysis' && (
+        <AnalysisReport
+          sample={sample}
+          onGeneratePDF={handleGenerateAnalysisPDF}
+          generating={genAnalysis}
+        />
+      )}
 
       {tab === 'Report' && (
         <div>
