@@ -22,6 +22,9 @@ const PORT = process.env.PORT || 3001;
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
 
+const backupsDir = path.join(__dirname, 'backups');
+if (!fs.existsSync(backupsDir)) fs.mkdirSync(backupsDir, { recursive: true });
+
 // ── Cloudinary / file storage ─────────────────────────────────────────────────
 
 const USE_CLOUDINARY = !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
@@ -157,6 +160,59 @@ cron.schedule('0 8 * * *', async () => {
     console.log(`[cron] Sent reminder for ${alerts.length} alerts`);
   } catch (err) {
     console.error('[cron] Email error:', err.message);
+  }
+});
+
+// ── Auto-backup helper ────────────────────────────────────────────────────────
+
+async function saveLocalBackup() {
+  if (!mdb) return;
+  const [samples, results, images, formulations, users, counters] = await Promise.all([
+    col('samples').find().toArray(),
+    col('results').find().toArray(),
+    col('images').find().toArray(),
+    col('formulations').find().toArray(),
+    col('users').find().toArray(),
+    col('counters').find().toArray(),
+  ]);
+  const _counters = {};
+  counters.forEach(c => { _counters[c._id] = c.seq; });
+  const backup = {
+    version: 1, app: 'FormuLab Hub', exported_at: new Date().toISOString(),
+    samples: samples.map(out), results: results.map(out), images: images.map(out),
+    formulations: formulations.map(out), users: users.map(out), _counters,
+  };
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const filename = `formulab-backup-${timestamp}.zip`;
+  const filepath = path.join(backupsDir, filename);
+  await new Promise((resolve, reject) => {
+    const output = fs.createWriteStream(filepath);
+    const archive = archiver('zip', { zlib: { level: 6 } });
+    output.on('close', resolve);
+    archive.on('error', reject);
+    archive.pipe(output);
+    archive.append(JSON.stringify(backup, null, 2), { name: 'backup.json' });
+    if (fs.existsSync(uploadsDir)) archive.directory(uploadsDir, 'uploads');
+    archive.finalize();
+  });
+
+  // Keep only the 7 most recent backups
+  const files = fs.readdirSync(backupsDir)
+    .filter(f => f.startsWith('formulab-backup-') && f.endsWith('.zip'))
+    .sort();
+  files.slice(0, Math.max(0, files.length - 7))
+    .forEach(f => fs.unlinkSync(path.join(backupsDir, f)));
+
+  console.log(`[backup] Saved ${filename} (${(fs.statSync(filepath).size / 1024).toFixed(1)} KB)`);
+}
+
+// ── Cron: daily auto-backup at 02:00 ─────────────────────────────────────────
+
+cron.schedule('0 2 * * *', async () => {
+  try {
+    await saveLocalBackup();
+  } catch (err) {
+    console.error('[backup] Auto-backup failed:', err.message);
   }
 });
 
@@ -607,7 +663,7 @@ app.post('/api/samples/:id/images', upload.single('image'), async (req, res) => 
   try {
     const stored = await storeFile(req.file);
     const id = await nextId('images');
-    const image = { _id: id, sample_id, ...stored, caption: req.body.caption || '', uploaded_at: now() };
+    const image = { _id: id, sample_id, ...stored, caption: req.body.caption || '', category: req.body.category || 'general', time_point: req.body.time_point || null, uploaded_at: now() };
     await col('images').insertOne(image);
     res.status(201).json(out(image));
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -756,7 +812,10 @@ app.get('/api/backup/export', requireAdmin, async (req, res) => {
     archive.on('error', err => { if (!res.headersSent) res.status(500).json({ error: err.message }); });
     archive.pipe(res);
     archive.append(JSON.stringify(backup, null, 2), { name: 'backup.json' });
+    if (fs.existsSync(uploadsDir)) archive.directory(uploadsDir, 'uploads');
     archive.finalize();
+    // Also save a local copy whenever admin manually exports
+    saveLocalBackup().catch(err => console.error('[backup] Local save failed:', err.message));
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
