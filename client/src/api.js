@@ -69,10 +69,12 @@ export const upsertResult = (sampleId, data) =>
 export const deleteResult = id =>
   api.delete(`/results/${id}`).then(r => r.data)
 
-export const uploadImage = (sampleId, file, caption = '') => {
+export const uploadImage = (sampleId, file, caption = '', category = 'general', time_point = null) => {
   const fd = new FormData()
   fd.append('image', file)
   fd.append('caption', caption)
+  fd.append('category', category)
+  if (time_point) fd.append('time_point', time_point)
   return api.post(`/samples/${sampleId}/images`, fd, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }).then(r => r.data)
