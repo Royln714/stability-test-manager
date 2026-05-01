@@ -384,6 +384,142 @@ export async function generateFormulationPDF(f) {
   doc.save(`formulation_${safeName}_${new Date().toISOString().split('T')[0]}.pdf`)
 }
 
+// ── Analysis Report PDF ───────────────────────────────────────────────────────
+
+const ANALYSIS_TIME_POINTS = ['Initial', '2_weeks', '1_month', '2_months', '3_months']
+const ANALYSIS_TIME_LABELS = { Initial: 'Initial', '2_weeks': '2 Weeks', '1_month': '1 Month', '2_months': '2 Months', '3_months': '3 Months' }
+
+export async function generateAnalysisPDF(sample, analysisData) {
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const pageW = doc.internal.pageSize.getWidth()
+  const pageH = doc.internal.pageSize.getHeight()
+  const margin = 14
+
+  // Pre-load microscope images
+  const imgData = {}
+  for (const tp of ANALYSIS_TIME_POINTS) {
+    const img = (sample.images || []).find(i =>
+      i.category === 'microscope' && i.time_point === tp &&
+      /\.(jpe?g|png|gif|webp)$/i.test(i.original_name || i.filename || ''))
+    if (img) {
+      try { imgData[tp] = await loadImageAsBase64(img.url) } catch {}
+    }
+  }
+
+  // ── Header ────────────────────────────────────────────────────────────────
+  doc.setFillColor(...HEADER_FILL)
+  doc.rect(0, 0, pageW, 18, 'F')
+  doc.setTextColor(255, 255, 255)
+  doc.setFontSize(13); doc.setFont('helvetica', 'bold')
+  doc.text('Stability Analysis Report', margin, 12)
+  doc.setFontSize(8); doc.setFont('helvetica', 'normal')
+  doc.text(`Generated: ${new Date().toLocaleDateString('en-GB')}`, pageW - margin, 12, { align: 'right' })
+
+  // ── Sample info ───────────────────────────────────────────────────────────
+  let y = 24
+  doc.setTextColor(30, 30, 30); doc.setFontSize(9)
+  doc.setFont('helvetica', 'bold'); doc.text('Sample:', margin, y)
+  doc.setFont('helvetica', 'normal'); doc.text(sample.name || '', margin + 18, y)
+  if (sample.ref_no) {
+    doc.setFont('helvetica', 'bold'); doc.text('Ref:', margin + 90, y)
+    doc.setFont('helvetica', 'normal'); doc.text(sample.ref_no, margin + 100, y)
+  }
+  doc.setFont('helvetica', 'bold'); doc.text('Started:', pageW - margin - 42, y)
+  doc.setFont('helvetica', 'normal'); doc.text(sample.date_started || '—', pageW - margin - 23, y)
+  y += 5
+  doc.setDrawColor(200, 200, 200); doc.line(margin, y, pageW - margin, y)
+  y += 8
+
+  // ── Per time point sections ───────────────────────────────────────────────
+  for (const tp of ANALYSIS_TIME_POINTS) {
+    const comment = (analysisData.comments || {})[tp] || ''
+    const img = imgData[tp]
+    const imgW = 62; const imgH = 52
+    const neededH = img ? imgH + 14 : (comment ? 28 : 18)
+    if (y + neededH > pageH - 40) { doc.addPage(); y = margin }
+
+    // Time point header bar
+    doc.setFillColor(241, 245, 249)
+    doc.rect(margin, y, pageW - margin * 2, 8, 'F')
+    doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 64, 175)
+    doc.text(ANALYSIS_TIME_LABELS[tp], margin + 3, y + 5.5)
+    y += 11
+
+    if (img) {
+      try {
+        doc.addImage(img, 'JPEG', margin, y, imgW, imgH)
+        doc.setDrawColor(200, 200, 200); doc.rect(margin, y, imgW, imgH)
+      } catch {}
+      if (comment) {
+        doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
+        const textX = margin + imgW + 5
+        const textW = pageW - margin - textX
+        const lines = doc.splitTextToSize(comment, textW)
+        doc.text(lines, textX, y + 5)
+      }
+      y += imgH + 5
+    } else if (comment) {
+      doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
+      const lines = doc.splitTextToSize(comment, pageW - margin * 2)
+      doc.text(lines, margin, y)
+      y += lines.length * 4.5 + 3
+    } else {
+      doc.setFontSize(8); doc.setFont('helvetica', 'italic'); doc.setTextColor(180, 180, 180)
+      doc.text('No data recorded for this time point.', margin, y)
+      y += 8
+    }
+
+    doc.setDrawColor(225, 225, 225); doc.line(margin, y, pageW - margin, y)
+    y += 7
+  }
+
+  // ── Summary ───────────────────────────────────────────────────────────────
+  if (analysisData.summary) {
+    if (y + 25 > pageH - 40) { doc.addPage(); y = margin }
+    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(20, 20, 20)
+    doc.text('Summary', margin, y); y += 6
+    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
+    const sumLines = doc.splitTextToSize(analysisData.summary, pageW - margin * 2)
+    if (y + sumLines.length * 4.5 > pageH - 40) { doc.addPage(); y = margin }
+    doc.text(sumLines, margin, y)
+    y += sumLines.length * 4.5 + 10
+  }
+
+  // ── Conclusion ────────────────────────────────────────────────────────────
+  if (analysisData.conclusion) {
+    if (y + 25 > pageH - 40) { doc.addPage(); y = margin }
+    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(20, 20, 20)
+    doc.text('Conclusion', margin, y); y += 6
+    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
+    const conLines = doc.splitTextToSize(analysisData.conclusion, pageW - margin * 2)
+    if (y + conLines.length * 4.5 > pageH - 40) { doc.addPage(); y = margin }
+    doc.text(conLines, margin, y)
+  }
+
+  // ── Disclaimer footer ─────────────────────────────────────────────────────
+  const disclaimer = analysisData.disclaimer || 'This report is for internal research and development purposes only.'
+  const dLines = doc.splitTextToSize(disclaimer, pageW - margin * 2)
+  const dH = dLines.length * 3.5 + 8
+  const totalPg = doc.internal.getNumberOfPages()
+  doc.setPage(totalPg)
+  const dY = pageH - dH - 4
+  doc.setDrawColor(200, 200, 200); doc.line(margin, dY - 2, pageW - margin, dY - 2)
+  doc.setFontSize(6.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(130, 130, 130)
+  doc.text(dLines, margin, dY + 3)
+
+  // ── Page numbers ──────────────────────────────────────────────────────────
+  const totalPages = doc.internal.getNumberOfPages()
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i)
+    doc.setFontSize(7); doc.setTextColor(180, 180, 180)
+    doc.text(`${sample.name || 'Analysis'} · FormuLab Hub`, margin, pageH - 4)
+    doc.text(`Page ${i} / ${totalPages}`, pageW - margin, pageH - 4, { align: 'right' })
+  }
+
+  const safeName = (sample.name || 'sample').replace(/[^a-zA-Z0-9_-]/g, '_')
+  doc.save(`analysis_${safeName}_${new Date().toISOString().split('T')[0]}.pdf`)
+}
+
 function loadImageAsBase64(url) {
   return new Promise((resolve, reject) => {
     const img = new Image()
