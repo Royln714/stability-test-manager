@@ -17,18 +17,20 @@ const METRICS = [
 
 function buildSeries(results, temps) {
   const byTP = Object.fromEntries(results.map(r => [r.time_point, r]))
-  return TIME_ORDER.map(tp => {
-    const r = byTP[tp]
-    const point = { tp: TIME_LABELS[tp] }
-    temps.forEach((t, i) => {
-      const suf = SUFFIXES[i]
-      point[`ph_${t.value}°C`]   = r?.[`ph_${suf}`]        ?? null
-      point[`visc_${t.value}°C`] = r?.[`viscosity_${suf}`] ?? null
-      point[`sg_${t.value}°C`]   = r?.[`sg_${suf}`]        ?? null
-      point[`ntu_${t.value}°C`]  = r?.[`turbidity_${suf}`] ?? null
+  return TIME_ORDER
+    .filter(tp => byTP[tp] !== undefined)
+    .map(tp => {
+      const r = byTP[tp]
+      const point = { tp: TIME_LABELS[tp] }
+      temps.forEach((t, i) => {
+        const suf = SUFFIXES[i]
+        point[`ph_${t.value}°C`]   = r?.[`ph_${suf}`]        ?? null
+        point[`visc_${t.value}°C`] = r?.[`viscosity_${suf}`] ?? null
+        point[`sg_${t.value}°C`]   = r?.[`sg_${suf}`]        ?? null
+        point[`ntu_${t.value}°C`]  = r?.[`turbidity_${suf}`] ?? null
+      })
+      return point
     })
-    return point
-  })
 }
 
 function TrendChart({ title, metricKey, data, temps, unit }) {
