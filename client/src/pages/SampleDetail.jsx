@@ -480,6 +480,15 @@ function MicroscopeGallery({ sampleId, images, onUpdate }) {
   const [magnification, setMagnification] = useState({})
   const [lightMode, setLightMode] = useState({})
   const [tempCond, setTempCond] = useState({})
+  const [imgComments, setImgComments] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('micro_comments') || '{}') } catch { return {} }
+  })
+
+  function setImgComment(imgId, val) {
+    const next = { ...imgComments, [imgId]: val }
+    setImgComments(next)
+    try { localStorage.setItem('micro_comments', JSON.stringify(next)) } catch {}
+  }
 
   async function handleUpload(tp, e) {
     const files = Array.from(e.target.files)
@@ -546,20 +555,29 @@ function MicroscopeGallery({ sampleId, images, onUpdate }) {
               {tpImgs.length === 0
                 ? <p className="text-xs text-gray-400 italic">No microscope images for this time point</p>
                 : (
-                  <div className="flex flex-wrap gap-3">
+                  <div className="space-y-2 w-full">
                     {tpImgs.map(img => (
-                      <div key={img.id} className="group relative flex flex-col items-center">
-                        <div className="relative w-24 h-24 rounded-lg overflow-hidden border border-gray-200 cursor-pointer"
+                      <div key={img.id} className="flex gap-3 items-start bg-gray-50 rounded-xl p-2 border border-gray-100">
+                        <div className="relative w-24 h-24 shrink-0 rounded-lg overflow-hidden border border-gray-200 cursor-pointer group"
                           onClick={() => setLightbox(img)}>
                           <img src={img.url} alt={img.caption} className="w-full h-full object-cover" />
                           <button onClick={e => { e.stopPropagation(); handleDelete(img.id) }}
                             className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">✕</button>
                         </div>
-                        {img.caption && (
-                          <span className="mt-1 text-[10px] bg-gray-100 text-gray-600 border border-gray-200 px-1.5 py-0.5 rounded-full font-medium">
-                            {img.caption}
-                          </span>
-                        )}
+                        <div className="flex-1 space-y-1">
+                          {img.caption && (
+                            <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-full font-medium">
+                              {img.caption}
+                            </span>
+                          )}
+                          <textarea
+                            className="input resize-none w-full text-xs"
+                            rows={3}
+                            placeholder="Comment / observation for this image..."
+                            value={imgComments[img.id] || ''}
+                            onChange={e => setImgComment(img.id, e.target.value)}
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -601,6 +619,9 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
   }
 
   const microImages = (sample.images || []).filter(img => img.category === 'microscope')
+  const imgComments = (() => {
+    try { return JSON.parse(localStorage.getItem('micro_comments') || '{}') } catch { return {} }
+  })()
 
   return (
     <div className="space-y-5">
@@ -609,7 +630,7 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
           <h3 className="font-semibold text-gray-900">Microscope Analysis Report</h3>
           <p className="text-sm text-gray-500 mt-0.5">Portrait A4 · images, comments, summary, conclusion & disclaimer</p>
         </div>
-        <button className="btn-primary" onClick={() => onGeneratePDF(analysis)} disabled={generating}>
+        <button className="btn-primary" onClick={() => onGeneratePDF({ ...analysis, imgComments })} disabled={generating}>
           {generating ? '⏳ Generating...' : '⬇ Download PDF'}
         </button>
       </div>
@@ -617,25 +638,33 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
       <div className="card overflow-hidden">
         <div className="px-5 py-3 border-b border-gray-100">
           <p className="font-semibold text-sm text-gray-700">Time Point Observations</p>
-          <p className="text-xs text-gray-400 mt-0.5">Upload microscope images in the Images tab. Add a comment per time point here.</p>
+          <p className="text-xs text-gray-400 mt-0.5">Images and comments from the Images tab appear here. Add an overall observation per time point below.</p>
         </div>
         <div className="divide-y divide-gray-100">
           {TIME_POINTS.map(tp => {
-            const micro = microImages.find(img =>
+            const tpImgs = microImages.filter(img =>
               img.time_point === tp &&
               /\.(jpe?g|png|gif|webp)$/i.test(img.original_name || img.filename || ''))
             return (
-              <div key={tp} className="p-5 flex gap-4">
-                <div className="w-28 shrink-0 text-center">
-                  {micro
-                    ? <img src={micro.url} alt="" className="w-28 h-24 object-cover rounded-lg border border-gray-200" />
-                    : <div className="w-28 h-24 rounded-lg bg-gray-100 flex items-center justify-center text-xs text-gray-400 px-2 text-center">No microscope image</div>}
-                  <p className="text-xs font-semibold text-blue-700 mt-1.5">{TIME_LABELS[tp]}</p>
-                </div>
-                <div className="flex-1">
-                  <label className="label">Observation / Comment</label>
-                  <textarea className="input resize-none w-full" rows={3}
-                    placeholder={`Observations for ${TIME_LABELS[tp]}...`}
+              <div key={tp} className="p-5 space-y-3">
+                <p className="text-sm font-semibold text-blue-700">{TIME_LABELS[tp]}</p>
+                {tpImgs.length > 0 && (
+                  <div className="space-y-2">
+                    {tpImgs.map(img => (
+                      <div key={img.id} className="flex gap-3 items-start bg-gray-50 rounded-xl p-2 border border-gray-100">
+                        <img src={img.url} alt="" className="w-20 h-20 object-cover rounded-lg border border-gray-200 shrink-0" />
+                        <div className="flex-1 space-y-1">
+                          {img.caption && <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-full">{img.caption}</span>}
+                          {imgComments[img.id] && <p className="text-xs text-gray-600 italic">{imgComments[img.id]}</p>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div>
+                  <label className="label">Overall Observation / Comment</label>
+                  <textarea className="input resize-none w-full" rows={2}
+                    placeholder={`Overall observations for ${TIME_LABELS[tp]}...`}
                     value={analysis.comments[tp] || ''}
                     onChange={e => update({ comments: { ...analysis.comments, [tp]: e.target.value } })} />
                 </div>
