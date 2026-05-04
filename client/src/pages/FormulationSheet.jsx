@@ -442,21 +442,23 @@ export default function FormulationSheet() {
       }
 
       // Find header row — first row where ≥2 cells match ingredient column aliases
+      // Find header row — first row with ≥2 ingredient column matches
       let headerRowIdx = -1
-      for (let i = 0; i < Math.min(raw.length, 15); i++) {
+      for (let i = 0; i < Math.min(raw.length, 20); i++) {
         const matches = raw[i].filter(cell => Object.values(ING_ALIASES).some(a => fuzzy(cell, a))).length
         if (matches >= 2) { headerRowIdx = i; break }
       }
 
-      // Scan top rows for product name (longest text) and ref no (matches ref pattern)
+      // Scan top rows for product name and ref no
       const formUpdates = {}
-      const refPattern = /[A-Z]{2,}\d{4,}/
-      for (let i = 0; i < Math.min(headerRowIdx < 0 ? 10 : headerRowIdx, 10); i++) {
+      const refPattern = /[A-Z]{2,}\d{3,}/
+      const scanLimit = headerRowIdx < 0 ? Math.min(raw.length, 10) : headerRowIdx
+      for (let i = 0; i < scanLimit; i++) {
         for (const cell of raw[i]) {
           const val = String(cell).trim()
           if (!val) continue
           if (!formUpdates.ref_no && refPattern.test(val)) formUpdates.ref_no = val
-          else if (!formUpdates.product_name && val.length > 5 && isNaN(val)) formUpdates.product_name = val
+          else if (!formUpdates.product_name && val.length > 3 && isNaN(Number(val))) formUpdates.product_name = val
         }
       }
 
@@ -465,32 +467,57 @@ export default function FormulationSheet() {
         if (found.length) {
           formDirty.current = true
           setForm(f => ({ ...f, ...formUpdates }))
-          return alert(`✓ Filled: ${found.join(', ')}\n\nNo ingredient table found. Make sure your ingredient columns have headers like:\nTrade Name, INCI Name, CAS No, %, Part, Supplier, Function`)
+          return alert(`✓ Filled: ${found.join(', ')}\n\nNo ingredient table found.`)
         }
-        return alert('Could not find an ingredient table. Add column headers like: Trade Name, INCI Name, CAS No, %')
+        return alert('Could not find an ingredient table. Ensure column headers include: Trade Name, INCI Name, %, Supplier, Function')
       }
 
       const headers = raw[headerRowIdx]
+
+      // Map ingredient fields to column indices
       const colMap = {}
       for (const [field, aliases] of Object.entries(ING_ALIASES)) {
         const idx = headers.findIndex(h => fuzzy(h, aliases))
         if (idx >= 0) colMap[field] = idx
       }
 
-      const imported = raw.slice(headerRowIdx + 1)
-        .filter(row => row.some(c => String(c).trim()))
-        .map(row => {
-          const ing = { id: uid() }
-          for (const [field, idx] of Object.entries(colMap)) {
-            ing[field] = String(row[idx] ?? '').trim()
-          }
-          return ing
-        })
-        .filter(ing => ing.trade_name || ing.inci_name || ing.percent)
+      // Detect part column — first column whose header is empty but data rows contain single letters like A/B/C
+      const partColIdx = colMap.part !== undefined ? colMap.part
+        : (() => {
+            for (let c = 0; c < Math.min(headers.length, 4); c++) {
+              if (String(headers[c]).trim()) continue // skip named columns
+              const sample = raw.slice(headerRowIdx + 1, headerRowIdx + 10).map(r => String(r[c] || '').trim())
+              if (sample.some(v => /^[A-Z]$/.test(v))) return c
+            }
+            return -1
+          })()
+
+      // Extract bulk size from headers like "300g" or "500g"
+      const bulkMatch = headers.map(h => String(h).match(/^(\d+)\s*g$/i)).find(Boolean)
+      if (bulkMatch) formUpdates.bulk_size = bulkMatch[1]
+
+      // Parse ingredient rows, propagating part letter down blank cells
+      let currentPart = ''
+      const imported = []
+      for (const row of raw.slice(headerRowIdx + 1)) {
+        if (!row.some(c => String(c).trim())) continue
+        const ing = { id: uid() }
+        for (const [field, idx] of Object.entries(colMap)) {
+          if (field === 'part') continue
+          ing[field] = String(row[idx] ?? '').trim()
+        }
+        // Part: use detected part column, carry forward if blank
+        if (partColIdx >= 0) {
+          const p = String(row[partColIdx] || '').trim()
+          if (/^[A-Z]$/.test(p)) currentPart = p
+          ing.part = currentPart
+        }
+        if (ing.trade_name || ing.inci_name || ing.percent) imported.push(ing)
+      }
 
       formDirty.current = true
       setForm(f => ({ ...f, ...formUpdates, ingredients: [...(f.ingredients || []), ...imported] }))
-      alert(`✓ Done!\nProduct info filled: ${Object.keys(formUpdates).join(', ') || 'none'}\nIngredient rows imported: ${imported.length}\nColumns matched: ${Object.keys(colMap).join(', ') || 'none'}`)
+      alert(`✓ Done!\nFilled: ${Object.keys(formUpdates).join(', ') || 'none'}\nIngredient rows: ${imported.length}\nColumns: ${Object.keys(colMap).join(', ')}`)
     }
     reader.readAsArrayBuffer(file)
   }
