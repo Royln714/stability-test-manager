@@ -427,7 +427,7 @@ export default function FormulationSheet() {
       if (!raw.length) return alert('No data found in file.')
 
       const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9%]/g, '')
-      const fuzzy = (h, aliases) => { const n = norm(h); return aliases.some(a => n === a || n.includes(a) || a.includes(n)) }
+      const fuzzy = (h, aliases) => { const n = norm(h); if (!n) return false; return aliases.some(a => n === a || n.includes(a)) }
 
       const ING_ALIASES = {
         part:        ['part', 'phase', 'section'],
