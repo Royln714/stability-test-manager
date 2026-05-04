@@ -423,42 +423,74 @@ export default function FormulationSheet() {
     reader.onload = evt => {
       const wb = XLSX.read(evt.target.result, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
-      if (!rows.length) return alert('No data found in file.')
+      const raw = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+      if (!raw.length) return alert('No data found in file.')
 
-      const norm = s => String(s || '').toLowerCase().replace(/[\s_/()]/g, '')
-      const COL_MAP = {
+      const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9%]/g, '')
+      const fuzzy = (h, aliases) => { const n = norm(h); return aliases.some(a => n === a || n.includes(a) || a.includes(n)) }
+
+      const ING_ALIASES = {
         part:        ['part', 'phase', 'section'],
-        trade_name:  ['tradename', 'ingredient', 'ingredientname', 'name', 'material', 'rawmaterial'],
-        description: ['description', 'desc'],
-        inci_name:   ['inci', 'inciname', 'iupac'],
-        cas_no:      ['cas', 'casno', 'casnumber'],
-        percent:     ['%', 'percent', 'percentage', 'ww', 'w/w', 'amount'],
-        supplier:    ['supplier', 'principal', 'vendor', 'manufacturer'],
+        trade_name:  ['tradename', 'ingredient', 'ingredientname', 'material', 'rawmaterial', 'chemical', 'substance'],
+        description: ['description', 'desc', 'details'],
+        inci_name:   ['inci', 'inciname'],
+        cas_no:      ['cas', 'casno', 'casnumber', 'casrn'],
+        percent:     ['%', 'percent', 'percentage', 'ww', 'concentration', 'amount', 'quantity'],
+        supplier:    ['supplier', 'principal', 'vendor', 'manufacturer', 'brand'],
         function:    ['function', 'role', 'purpose'],
-        compliance:  ['compliance', 'regulation', 'remark', 'remarks'],
+        compliance:  ['compliance', 'regulation', 'remark', 'remarks', 'note', 'notes'],
       }
 
-      const headers = Object.keys(rows[0])
+      // Find header row — first row where ≥2 cells match ingredient column aliases
+      let headerRowIdx = -1
+      for (let i = 0; i < Math.min(raw.length, 15); i++) {
+        const matches = raw[i].filter(cell => Object.values(ING_ALIASES).some(a => fuzzy(cell, a))).length
+        if (matches >= 2) { headerRowIdx = i; break }
+      }
+
+      // Scan top rows for product name (longest text) and ref no (matches ref pattern)
+      const formUpdates = {}
+      const refPattern = /[A-Z]{2,}\d{4,}/
+      for (let i = 0; i < Math.min(headerRowIdx < 0 ? 10 : headerRowIdx, 10); i++) {
+        for (const cell of raw[i]) {
+          const val = String(cell).trim()
+          if (!val) continue
+          if (!formUpdates.ref_no && refPattern.test(val)) formUpdates.ref_no = val
+          else if (!formUpdates.product_name && val.length > 5 && isNaN(val)) formUpdates.product_name = val
+        }
+      }
+
+      if (headerRowIdx < 0) {
+        const found = Object.keys(formUpdates)
+        if (found.length) {
+          formDirty.current = true
+          setForm(f => ({ ...f, ...formUpdates }))
+          return alert(`✓ Filled: ${found.join(', ')}\n\nNo ingredient table found. Make sure your ingredient columns have headers like:\nTrade Name, INCI Name, CAS No, %, Part, Supplier, Function`)
+        }
+        return alert('Could not find an ingredient table. Add column headers like: Trade Name, INCI Name, CAS No, %')
+      }
+
+      const headers = raw[headerRowIdx]
       const colMap = {}
-      for (const [field, aliases] of Object.entries(COL_MAP)) {
-        const match = headers.find(h => aliases.includes(norm(h)))
-        if (match) colMap[field] = match
+      for (const [field, aliases] of Object.entries(ING_ALIASES)) {
+        const idx = headers.findIndex(h => fuzzy(h, aliases))
+        if (idx >= 0) colMap[field] = idx
       }
 
-      const imported = rows
-        .filter(r => Object.values(r).some(v => String(v).trim()))
-        .map(r => {
-          const row = { id: uid() }
-          for (const [field, header] of Object.entries(colMap)) {
-            row[field] = String(r[header] ?? '').trim()
+      const imported = raw.slice(headerRowIdx + 1)
+        .filter(row => row.some(c => String(c).trim()))
+        .map(row => {
+          const ing = { id: uid() }
+          for (const [field, idx] of Object.entries(colMap)) {
+            ing[field] = String(row[idx] ?? '').trim()
           }
-          return row
+          return ing
         })
+        .filter(ing => ing.trade_name || ing.inci_name || ing.percent)
 
-      if (!imported.length) return alert('Could not read any rows.')
       formDirty.current = true
-      setForm(f => ({ ...f, ingredients: [...(f.ingredients || []), ...imported] }))
+      setForm(f => ({ ...f, ...formUpdates, ingredients: [...(f.ingredients || []), ...imported] }))
+      alert(`✓ Done!\nProduct info filled: ${Object.keys(formUpdates).join(', ') || 'none'}\nIngredient rows imported: ${imported.length}\nColumns matched: ${Object.keys(colMap).join(', ') || 'none'}`)
     }
     reader.readAsArrayBuffer(file)
   }
