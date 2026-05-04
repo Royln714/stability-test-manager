@@ -469,17 +469,25 @@ function EditSampleModal({ sample, onClose, onSave }) {
 
 // ── Microscope Image Gallery ──────────────────────────────────────────────────
 
+const MAG_OPTIONS = ['40x', '100x', '200x', '400x', '500x', '1000x']
+const LIGHT_OPTIONS = ['Brightfield', 'Polarized']
+
 function MicroscopeGallery({ sampleId, images, onUpdate }) {
   const fileRefs = useRef({})
   const [uploading, setUploading] = useState(null)
   const [lightbox, setLightbox] = useState(null)
+  const [magnification, setMagnification] = useState({})
+  const [lightMode, setLightMode] = useState({})
 
   async function handleUpload(tp, e) {
     const files = Array.from(e.target.files)
     if (!files.length) return
+    const mag = magnification[tp] || ''
+    const mode = lightMode[tp] || ''
+    const caption = [mag, mode].filter(Boolean).join(' | ')
     setUploading(tp)
     try {
-      for (const f of files) await uploadImage(sampleId, f, `${TIME_LABELS[tp]} microscope`, 'microscope', tp)
+      for (const f of files) await uploadImage(sampleId, f, caption, 'microscope', tp)
     } finally { setUploading(null); e.target.value = ''; onUpdate() }
   }
 
@@ -500,7 +508,21 @@ function MicroscopeGallery({ sampleId, images, onUpdate }) {
             <div key={tp} className="rounded-xl border border-gray-200 p-4">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-sm font-semibold text-blue-700">{TIME_LABELS[tp]}</span>
-                <div>
+                <div className="flex items-center gap-2 flex-wrap justify-end">
+                  <select
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-700"
+                    value={magnification[tp] || ''}
+                    onChange={e => setMagnification(m => ({ ...m, [tp]: e.target.value }))}>
+                    <option value="">— Magnification —</option>
+                    {MAG_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                  <select
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-700"
+                    value={lightMode[tp] || ''}
+                    onChange={e => setLightMode(m => ({ ...m, [tp]: e.target.value }))}>
+                    <option value="">— Light Mode —</option>
+                    {LIGHT_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+                  </select>
                   <input ref={el => fileRefs.current[tp] = el} type="file" className="hidden"
                     accept="image/*" multiple onChange={e => handleUpload(tp, e)} />
                   <button className="btn-secondary text-xs py-1"
@@ -512,13 +534,20 @@ function MicroscopeGallery({ sampleId, images, onUpdate }) {
               {tpImgs.length === 0
                 ? <p className="text-xs text-gray-400 italic">No microscope images for this time point</p>
                 : (
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-3">
                     {tpImgs.map(img => (
-                      <div key={img.id} className="group relative w-24 h-24 rounded-lg overflow-hidden border border-gray-200 cursor-pointer"
-                        onClick={() => setLightbox(img)}>
-                        <img src={img.url} alt={img.caption} className="w-full h-full object-cover" />
-                        <button onClick={e => { e.stopPropagation(); handleDelete(img.id) }}
-                          className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">✕</button>
+                      <div key={img.id} className="group relative flex flex-col items-center">
+                        <div className="relative w-24 h-24 rounded-lg overflow-hidden border border-gray-200 cursor-pointer"
+                          onClick={() => setLightbox(img)}>
+                          <img src={img.url} alt={img.caption} className="w-full h-full object-cover" />
+                          <button onClick={e => { e.stopPropagation(); handleDelete(img.id) }}
+                            className="absolute top-0.5 right-0.5 w-5 h-5 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">✕</button>
+                        </div>
+                        {img.caption && (
+                          <span className="mt-1 text-[10px] bg-gray-100 text-gray-600 border border-gray-200 px-1.5 py-0.5 rounded-full font-medium">
+                            {img.caption}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
