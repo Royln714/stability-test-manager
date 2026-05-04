@@ -394,16 +394,22 @@ export async function generateAnalysisPDF(sample, analysisData) {
   const pageW = doc.internal.pageSize.getWidth()
   const pageH = doc.internal.pageSize.getHeight()
   const margin = 14
+  const imgComments = analysisData.imgComments || {}
 
-  // Pre-load microscope images
-  const imgData = {}
+  // Pre-load ALL microscope images per time point
+  const imgsByTP = {}
   for (const tp of ANALYSIS_TIME_POINTS) {
-    const img = (sample.images || []).find(i =>
+    const tpImages = (sample.images || []).filter(i =>
       i.category === 'microscope' && i.time_point === tp &&
       /\.(jpe?g|png|gif|webp)$/i.test(i.original_name || i.filename || ''))
-    if (img) {
-      try { imgData[tp] = await loadImageAsBase64(img.url) } catch {}
+    const loaded = []
+    for (const img of tpImages) {
+      try {
+        const data = await loadImageAsBase64(img.url)
+        loaded.push({ ...img, _data: data })
+      } catch {}
     }
+    imgsByTP[tp] = loaded
   }
 
   // ── Header ────────────────────────────────────────────────────────────────
@@ -430,43 +436,73 @@ export async function generateAnalysisPDF(sample, analysisData) {
   doc.setDrawColor(200, 200, 200); doc.line(margin, y, pageW - margin, y)
   y += 8
 
+  // Image grid constants
+  const IMG_COLS = 3
+  const IMG_GAP = 4
+  const contentW = pageW - margin * 2
+  const imgW = (contentW - IMG_GAP * (IMG_COLS - 1)) / IMG_COLS  // ~58mm
+  const imgH = imgW * 0.72  // ~42mm, slightly wide
+  const rowSlotH = imgH + 12  // image + caption + comment space
+
   // ── Per time point sections ───────────────────────────────────────────────
   for (const tp of ANALYSIS_TIME_POINTS) {
     const comment = (analysisData.comments || {})[tp] || ''
-    const img = imgData[tp]
-    const imgW = 62; const imgH = 52
-    const neededH = img ? imgH + 14 : (comment ? 28 : 18)
-    if (y + neededH > pageH - 40) { doc.addPage(); y = margin }
+    const imgs = imgsByTP[tp]
 
-    // Time point header bar
+    // Time point header bar — always keep header + at least one row together
+    if (y + 11 + rowSlotH > pageH - 40) { doc.addPage(); y = margin }
+
     doc.setFillColor(241, 245, 249)
     doc.rect(margin, y, pageW - margin * 2, 8, 'F')
     doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 64, 175)
     doc.text(ANALYSIS_TIME_LABELS[tp], margin + 3, y + 5.5)
     y += 11
 
-    if (img) {
-      try {
-        doc.addImage(img, 'JPEG', margin, y, imgW, imgH)
-        doc.setDrawColor(200, 200, 200); doc.rect(margin, y, imgW, imgH)
-      } catch {}
-      if (comment) {
-        doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
-        const textX = margin + imgW + 5
-        const textW = pageW - margin - textX
-        const lines = doc.splitTextToSize(comment, textW)
-        doc.text(lines, textX, y + 5)
+    if (imgs.length > 0) {
+      // Render images in rows of IMG_COLS
+      for (let rowStart = 0; rowStart < imgs.length; rowStart += IMG_COLS) {
+        if (y + rowSlotH > pageH - 40) { doc.addPage(); y = margin }
+        const rowImgs = imgs.slice(rowStart, rowStart + IMG_COLS)
+
+        for (let col = 0; col < rowImgs.length; col++) {
+          const img = rowImgs[col]
+          const x = margin + col * (imgW + IMG_GAP)
+          try {
+            doc.addImage(img._data, 'JPEG', x, y, imgW, imgH)
+            doc.setDrawColor(200, 200, 200); doc.rect(x, y, imgW, imgH)
+          } catch {}
+
+          // Caption (magnification | light mode | temp)
+          if (img.caption) {
+            doc.setFontSize(6.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80)
+            const capText = doc.splitTextToSize(img.caption, imgW - 2)
+            doc.text(capText[0], x + imgW / 2, y + imgH + 3.5, { align: 'center' })
+          }
+
+          // Per-image comment
+          const imgId = String(img._id || img.id || '')
+          const imgCmt = imgComments[imgId] || ''
+          if (imgCmt) {
+            doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 60, 60)
+            const cmtLines = doc.splitTextToSize(imgCmt, imgW - 2)
+            doc.text(cmtLines[0], x + imgW / 2, y + imgH + 8, { align: 'center' })
+          }
+        }
+        y += rowSlotH
       }
-      y += imgH + 5
-    } else if (comment) {
+    } else if (!comment) {
+      doc.setFontSize(8); doc.setFont('helvetica', 'italic'); doc.setTextColor(180, 180, 180)
+      doc.text('No data recorded for this time point.', margin, y)
+      y += 8
+    }
+
+    // Overall time point comment below images
+    if (comment) {
+      if (y + 14 > pageH - 40) { doc.addPage(); y = margin }
       doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
       const lines = doc.splitTextToSize(comment, pageW - margin * 2)
       doc.text(lines, margin, y)
       y += lines.length * 4.5 + 3
-    } else {
-      doc.setFontSize(8); doc.setFont('helvetica', 'italic'); doc.setTextColor(180, 180, 180)
-      doc.text('No data recorded for this time point.', margin, y)
-      y += 8
     }
 
     doc.setDrawColor(225, 225, 225); doc.line(margin, y, pageW - margin, y)
