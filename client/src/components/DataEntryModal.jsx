@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 const TIME_LABELS = {
   Initial: 'Initial', '2_weeks': '2 Weeks', '1_month': '1 Month',
@@ -38,6 +38,7 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const mouseDownTarget = useRef(null)
 
   useEffect(() => {
     if (existing) {
@@ -76,7 +77,10 @@ export default function DataEntryModal({ timePoint, existing, temps, onSave, onC
   ]
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onMouseDown={e => { mouseDownTarget.current = e.target }}
+      onMouseUp={e => { if (mouseDownTarget.current === e.currentTarget && e.target === e.currentTarget) onClose() }}
+    >
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="p-5 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
           <div>
