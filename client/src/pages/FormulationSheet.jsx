@@ -3,6 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom'
 import { getFormulation, updateFormulation, createFormulation, uploadLogo, uploadRefImage, getSamples } from '../api'
 import { generateFormulationPDF } from '../pdfReport'
 import { searchIngredients } from '../ingredientDB'
+import * as XLSX from 'xlsx'
 
 let _id = Date.now()
 const uid = () => ++_id
@@ -362,6 +363,7 @@ export default function FormulationSheet() {
   const [duplicating, setDuplicating] = useState(false)
   const saveTimer = useRef(null)
   const formDirty = useRef(false)
+  const importRef = useRef(null)
 
   useEffect(() => {
     getFormulation(id).then(setForm).catch(() => navigate('/formulations'))
@@ -413,6 +415,54 @@ export default function FormulationSheet() {
     } finally { setDuplicating(false) }
   }
 
+  function handleImport(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    e.target.value = ''
+    const reader = new FileReader()
+    reader.onload = evt => {
+      const wb = XLSX.read(evt.target.result, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+      if (!rows.length) return alert('No data found in file.')
+
+      const norm = s => String(s || '').toLowerCase().replace(/[\s_/()]/g, '')
+      const COL_MAP = {
+        part:        ['part', 'phase', 'section'],
+        trade_name:  ['tradename', 'ingredient', 'ingredientname', 'name', 'material', 'rawmaterial'],
+        description: ['description', 'desc'],
+        inci_name:   ['inci', 'inciname', 'iupac'],
+        cas_no:      ['cas', 'casno', 'casnumber'],
+        percent:     ['%', 'percent', 'percentage', 'ww', 'w/w', 'amount'],
+        supplier:    ['supplier', 'principal', 'vendor', 'manufacturer'],
+        function:    ['function', 'role', 'purpose'],
+        compliance:  ['compliance', 'regulation', 'remark', 'remarks'],
+      }
+
+      const headers = Object.keys(rows[0])
+      const colMap = {}
+      for (const [field, aliases] of Object.entries(COL_MAP)) {
+        const match = headers.find(h => aliases.includes(norm(h)))
+        if (match) colMap[field] = match
+      }
+
+      const imported = rows
+        .filter(r => Object.values(r).some(v => String(v).trim()))
+        .map(r => {
+          const row = { id: uid() }
+          for (const [field, header] of Object.entries(colMap)) {
+            row[field] = String(r[header] ?? '').trim()
+          }
+          return row
+        })
+
+      if (!imported.length) return alert('Could not read any rows.')
+      formDirty.current = true
+      setForm(f => ({ ...f, ingredients: [...(f.ingredients || []), ...imported] }))
+    }
+    reader.readAsArrayBuffer(file)
+  }
+
   function downloadCSV() {
     const cols = mergeColOrder(form.col_order)
     const effRows = getEffRows(form.ingredients || [], form.qs_enabled)
@@ -449,6 +499,8 @@ export default function FormulationSheet() {
         </div>
         <div className="flex items-center gap-2">
           <button className="btn-secondary text-xs" onClick={downloadCSV}>⬇ CSV</button>
+          <button className="btn-secondary text-xs" onClick={() => importRef.current.click()}>⬆ Import Excel/CSV</button>
+          <input ref={importRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImport} />
           <button className="btn-secondary text-xs" onClick={handleDuplicate} disabled={duplicating}>
             {duplicating ? 'Duplicating...' : '⧉ Duplicate'}
           </button>
