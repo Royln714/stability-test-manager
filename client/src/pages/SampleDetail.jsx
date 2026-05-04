@@ -471,6 +471,7 @@ function EditSampleModal({ sample, onClose, onSave }) {
 
 const MAG_OPTIONS = ['40x', '100x', '200x', '400x', '500x', '1000x']
 const LIGHT_OPTIONS = ['Brightfield', 'Polarized']
+const TEMP_OPTIONS = ['RT', '45°C', '50°C']
 
 function MicroscopeGallery({ sampleId, images, onUpdate }) {
   const fileRefs = useRef({})
@@ -478,13 +479,15 @@ function MicroscopeGallery({ sampleId, images, onUpdate }) {
   const [lightbox, setLightbox] = useState(null)
   const [magnification, setMagnification] = useState({})
   const [lightMode, setLightMode] = useState({})
+  const [tempCond, setTempCond] = useState({})
 
   async function handleUpload(tp, e) {
     const files = Array.from(e.target.files)
     if (!files.length) return
     const mag = magnification[tp] || ''
     const mode = lightMode[tp] || ''
-    const caption = [mag, mode].filter(Boolean).join(' | ')
+    const temp = tp !== 'Initial' ? (tempCond[tp] || '') : ''
+    const caption = [mag, mode, temp].filter(Boolean).join(' | ')
     setUploading(tp)
     try {
       for (const f of files) await uploadImage(sampleId, f, caption, 'microscope', tp)
@@ -523,6 +526,15 @@ function MicroscopeGallery({ sampleId, images, onUpdate }) {
                     <option value="">— Light Mode —</option>
                     {LIGHT_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
                   </select>
+                  {tp !== 'Initial' && (
+                    <select
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white text-gray-700"
+                      value={tempCond[tp] || ''}
+                      onChange={e => setTempCond(m => ({ ...m, [tp]: e.target.value }))}>
+                      <option value="">— Temp —</option>
+                      {TEMP_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  )}
                   <input ref={el => fileRefs.current[tp] = el} type="file" className="hidden"
                     accept="image/*" multiple onChange={e => handleUpload(tp, e)} />
                   <button className="btn-secondary text-xs py-1"
