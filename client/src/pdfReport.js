@@ -467,10 +467,12 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
   const CMT_LINE_H = 3.2  // height per comment line at 7pt
   const CAP_H = 5         // fixed space for caption
 
-  // ── Per time point sections ───────────────────────────────────────────────
+  // ── Per time point sections (skip if no images) ──────────────────────────
   for (const tp of ANALYSIS_TIME_POINTS) {
     const comment = (analysisData.comments || {})[tp] || ''
     const imgs = imgsByTP[tp]
+
+    if (imgs.length === 0) continue   // no images → omit this time point entirely
 
     if (y + 20 > pageH - 40) { doc.addPage(); y = margin }
 
@@ -525,10 +527,6 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
         }
         y += rowH
       }
-    } else if (!comment) {
-      doc.setFontSize(8); doc.setFont('helvetica', 'italic'); doc.setTextColor(180, 180, 180)
-      doc.text('No data recorded for this time point.', margin, y)
-      y += 8
     }
 
     // Overall time point comment below images
