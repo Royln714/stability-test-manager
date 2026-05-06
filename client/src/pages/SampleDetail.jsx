@@ -613,6 +613,7 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
         reportTitle: 'Stability Analysis Report',
         footerLeft: `FormuLab Hub · ${sample.name}`,
         footerRight: '',
+        excludedImages: [],
       }
       return saved ? { ...defaults, ...JSON.parse(saved) } : defaults
     } catch {
@@ -621,9 +622,16 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
         reportTitle: 'Stability Analysis Report',
         footerLeft: `FormuLab Hub · ${sample.name}`,
         footerRight: '',
+        excludedImages: [],
       }
     }
   })
+
+  function toggleImage(imgId) {
+    const id = String(imgId)
+    const excluded = analysis.excludedImages || []
+    update({ excludedImages: excluded.includes(id) ? excluded.filter(x => x !== id) : [...excluded, id] })
+  }
 
   function update(patch) {
     const next = { ...analysis, ...patch }
@@ -683,15 +691,26 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
                 <p className="text-sm font-semibold text-blue-700">{TIME_LABELS[tp]}</p>
                 {tpImgs.length > 0 && (
                   <div className="space-y-2">
-                    {tpImgs.map(img => (
-                      <div key={img.id} className="flex gap-3 items-start bg-gray-50 rounded-xl p-2 border border-gray-100">
-                        <img src={img.url} alt="" className="w-20 h-20 object-cover rounded-lg border border-gray-200 shrink-0" />
-                        <div className="flex-1 space-y-1">
-                          {img.caption && <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-full">{img.caption}</span>}
-                          {imgComments[img.id] && <p className="text-xs text-gray-600 italic">{imgComments[img.id]}</p>}
+                    {tpImgs.map(img => {
+                      const imgId = String(img._id || img.id || '')
+                      const excluded = (analysis.excludedImages || []).includes(imgId)
+                      return (
+                        <div key={img.id} className={`flex gap-3 items-start rounded-xl p-2 border transition-all ${excluded ? 'bg-gray-100 border-gray-200 opacity-50' : 'bg-gray-50 border-gray-100'}`}>
+                          <img src={img.url} alt="" className="w-20 h-20 object-cover rounded-lg border border-gray-200 shrink-0" />
+                          <div className="flex-1 space-y-1 min-w-0">
+                            {img.caption && <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-full">{img.caption}</span>}
+                            {imgComments[imgId] && <p className="text-xs text-gray-600 italic break-words">{imgComments[imgId]}</p>}
+                          </div>
+                          <button
+                            onClick={() => toggleImage(imgId)}
+                            className={`shrink-0 text-xs px-2 py-1 rounded-lg font-medium border transition-colors ${excluded ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'}`}
+                            title={excluded ? 'Click to include in PDF' : 'Click to exclude from PDF'}
+                          >
+                            {excluded ? 'Excluded' : 'Included'}
+                          </button>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
                 <div>
@@ -749,7 +768,7 @@ export default function SampleDetail() {
   const [genPDF, setGenPDF] = useState(false)
   const [genAnalysis, setGenAnalysis] = useState(false)
   const [linkedFormulation, setLinkedFormulation] = useState(null)
-  const [reportOpts, setReportOpts] = useState({ title: 'Stability Test Result', footerLeft: '', footerRight: '', preparedBy: '', reviewedBy: '' })
+  const [reportOpts, setReportOpts] = useState({ title: 'Stability Test Result', footerLeft: '', footerRight: '', preparedBy: '', reviewedBy: '', excludedImages: [] })
 
   const load = async () => {
     try {
@@ -876,8 +895,19 @@ export default function SampleDetail() {
         footerRight: reportOpts.footerRight || null,
         preparedBy: reportOpts.preparedBy,
         reviewedBy: reportOpts.reviewedBy,
+        excludedImages: reportOpts.excludedImages,
       })
     } finally { setGenPDF(false) }
+  }
+
+  function toggleReportImage(imgId) {
+    const id = String(imgId)
+    setReportOpts(p => ({
+      ...p,
+      excludedImages: p.excludedImages.includes(id)
+        ? p.excludedImages.filter(x => x !== id)
+        : [...p.excludedImages, id],
+    }))
   }
 
   async function handleGenerateAnalysisPDF(analysisData) {
@@ -1056,6 +1086,33 @@ export default function SampleDetail() {
               </button>
             </div>
           </div>
+          {(() => {
+            const reportImgs = sample.images.filter(img => img.url && /\.(jpe?g|png|gif|webp)$/i.test(img.original_name || img.filename || ''))
+            if (!reportImgs.length) return null
+            return (
+              <div className="card p-6 mb-5">
+                <p className="font-semibold text-gray-900 mb-1">Attached Images</p>
+                <p className="text-xs text-gray-400 mb-3">Toggle which images to include in the PDF report.</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  {reportImgs.map(img => {
+                    const imgId = String(img._id || img.id || '')
+                    const excluded = reportOpts.excludedImages.includes(imgId)
+                    return (
+                      <div key={imgId} className={`rounded-xl border overflow-hidden transition-all cursor-pointer ${excluded ? 'opacity-40 border-gray-200' : 'border-blue-200'}`}
+                        onClick={() => toggleReportImage(imgId)}>
+                        <img src={img.url} alt="" className="w-full h-24 object-cover" />
+                        <div className={`text-center text-xs py-1 font-medium ${excluded ? 'bg-gray-100 text-gray-400' : 'bg-blue-50 text-blue-700'}`}>
+                          {excluded ? 'Excluded' : 'Included'}
+                        </div>
+                        {img.caption && <p className="text-[10px] text-gray-500 text-center px-1 pb-1 truncate">{img.caption}</p>}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
+
           <div className="card p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold text-gray-900">Stability Test Result</h2>

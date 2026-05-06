@@ -175,7 +175,12 @@ export async function generatePDF(sample, options = {}) {
   }
 
   // ── Images ────────────────────────────────────────────────────────────────
-  const imageFiles = (sample.images || []).filter(img => img.url && /\.(jpe?g|png|gif|webp)$/i.test(img.original_name || img.filename || ''))
+  const excludedReportSet = new Set((options.excludedImages || []).map(String))
+  const imageFiles = (sample.images || []).filter(img =>
+    img.url &&
+    /\.(jpe?g|png|gif|webp)$/i.test(img.original_name || img.filename || '') &&
+    !excludedReportSet.has(String(img._id || img.id || ''))
+  )
 
   if (imageFiles.length > 0) {
     const tableBottom = doc.lastAutoTable.finalY + 8
@@ -410,13 +415,15 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
   const pageH = doc.internal.pageSize.getHeight()
   const margin = 14
   const imgComments = analysisData.imgComments || {}
+  const excludedSet = new Set((analysisData.excludedImages || []).map(String))
 
-  // Pre-load ALL microscope images per time point
+  // Pre-load microscope images per time point (skip excluded)
   const imgsByTP = {}
   for (const tp of ANALYSIS_TIME_POINTS) {
     const tpImages = (sample.images || []).filter(i =>
       i.category === 'microscope' && i.time_point === tp &&
-      /\.(jpe?g|png|gif|webp)$/i.test(i.original_name || i.filename || ''))
+      /\.(jpe?g|png|gif|webp)$/i.test(i.original_name || i.filename || '') &&
+      !excludedSet.has(String(i._id || i.id || '')))
     const loaded = []
     for (const img of tpImages) {
       try {
@@ -456,16 +463,16 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
   const IMG_GAP = 4
   const contentW = pageW - margin * 2
   const imgW = (contentW - IMG_GAP * (IMG_COLS - 1)) / IMG_COLS  // ~58mm
-  const imgH = imgW * 0.72  // ~42mm, slightly wide
-  const rowSlotH = imgH + 12  // image + caption + comment space
+  const imgH = imgW * 0.75                                        // ~44mm
+  const CMT_LINE_H = 3.2  // height per comment line at 7pt
+  const CAP_H = 5         // fixed space for caption
 
   // ── Per time point sections ───────────────────────────────────────────────
   for (const tp of ANALYSIS_TIME_POINTS) {
     const comment = (analysisData.comments || {})[tp] || ''
     const imgs = imgsByTP[tp]
 
-    // Time point header bar — always keep header + at least one row together
-    if (y + 11 + rowSlotH > pageH - 40) { doc.addPage(); y = margin }
+    if (y + 20 > pageH - 40) { doc.addPage(); y = margin }
 
     doc.setFillColor(241, 245, 249)
     doc.rect(margin, y, pageW - margin * 2, 8, 'F')
@@ -474,10 +481,23 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
     y += 11
 
     if (imgs.length > 0) {
-      // Render images in rows of IMG_COLS
       for (let rowStart = 0; rowStart < imgs.length; rowStart += IMG_COLS) {
-        if (y + rowSlotH > pageH - 40) { doc.addPage(); y = margin }
         const rowImgs = imgs.slice(rowStart, rowStart + IMG_COLS)
+
+        // Calculate how many comment lines the tallest cell in this row needs
+        let maxCmtLines = 0
+        for (const img of rowImgs) {
+          const imgId = String(img._id || img.id || '')
+          const imgCmt = imgComments[imgId] || ''
+          if (imgCmt) {
+            doc.setFontSize(7); doc.setFont('helvetica', 'normal')
+            const lines = doc.splitTextToSize(imgCmt, imgW - 4)
+            maxCmtLines = Math.max(maxCmtLines, lines.length)
+          }
+        }
+        const rowH = imgH + CAP_H + maxCmtLines * CMT_LINE_H + 4
+
+        if (y + rowH > pageH - 40) { doc.addPage(); y = margin }
 
         for (let col = 0; col < rowImgs.length; col++) {
           const img = rowImgs[col]
@@ -487,23 +507,23 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
             doc.setDrawColor(200, 200, 200); doc.rect(x, y, imgW, imgH)
           } catch {}
 
-          // Caption (magnification | light mode | temp)
+          // Caption
           if (img.caption) {
             doc.setFontSize(6.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80)
-            const capText = doc.splitTextToSize(img.caption, imgW - 2)
-            doc.text(capText[0], x + imgW / 2, y + imgH + 3.5, { align: 'center' })
+            const capLines = doc.splitTextToSize(img.caption, imgW - 2)
+            doc.text(capLines[0], x + imgW / 2, y + imgH + 3.5, { align: 'center' })
           }
 
-          // Per-image comment
+          // Full per-image comment (all lines)
           const imgId = String(img._id || img.id || '')
           const imgCmt = imgComments[imgId] || ''
           if (imgCmt) {
             doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 60, 60)
-            const cmtLines = doc.splitTextToSize(imgCmt, imgW - 2)
-            doc.text(cmtLines[0], x + imgW / 2, y + imgH + 8, { align: 'center' })
+            const cmtLines = doc.splitTextToSize(imgCmt, imgW - 4)
+            doc.text(cmtLines, x + imgW / 2, y + imgH + CAP_H + 3, { align: 'center' })
           }
         }
-        y += rowSlotH
+        y += rowH
       }
     } else if (!comment) {
       doc.setFontSize(8); doc.setFont('helvetica', 'italic'); doc.setTextColor(180, 180, 180)
