@@ -608,8 +608,21 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
   const [analysis, setAnalysis] = useState(() => {
     try {
       const saved = localStorage.getItem(storageKey)
-      return saved ? JSON.parse(saved) : { comments: {}, summary: '', conclusion: '', disclaimer: DEFAULT_DISCLAIMER }
-    } catch { return { comments: {}, summary: '', conclusion: '', disclaimer: DEFAULT_DISCLAIMER } }
+      const defaults = {
+        comments: {}, summary: '', conclusion: '', disclaimer: DEFAULT_DISCLAIMER,
+        reportTitle: 'Stability Analysis Report',
+        footerLeft: `FormuLab Hub · ${sample.name}`,
+        footerRight: '',
+      }
+      return saved ? { ...defaults, ...JSON.parse(saved) } : defaults
+    } catch {
+      return {
+        comments: {}, summary: '', conclusion: '', disclaimer: DEFAULT_DISCLAIMER,
+        reportTitle: 'Stability Analysis Report',
+        footerLeft: `FormuLab Hub · ${sample.name}`,
+        footerRight: '',
+      }
+    }
   })
 
   function update(patch) {
@@ -625,14 +638,34 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
 
   return (
     <div className="space-y-5">
-      <div className="card p-5 flex items-center justify-between">
-        <div>
-          <h3 className="font-semibold text-gray-900">Microscope Analysis Report</h3>
-          <p className="text-sm text-gray-500 mt-0.5">Portrait A4 · images, comments, summary, conclusion & disclaimer</p>
+      <div className="card p-6">
+        <h3 className="font-semibold text-gray-900 mb-4">Report Settings</h3>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Report Title</label>
+            <input className="input w-full" value={analysis.reportTitle}
+              onChange={e => update({ reportTitle: e.target.value })}
+              placeholder="Stability Analysis Report" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Footer — Left Text</label>
+            <input className="input w-full" value={analysis.footerLeft}
+              onChange={e => update({ footerLeft: e.target.value })}
+              placeholder={`FormuLab Hub · ${sample.name}`} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-600 mb-1">Footer — Right Text</label>
+            <input className="input w-full" value={analysis.footerRight}
+              onChange={e => update({ footerRight: e.target.value })}
+              placeholder="Leave blank for auto page numbers" />
+            <p className="text-xs text-gray-400 mt-1">Blank = automatic "Page 1 of N"</p>
+          </div>
         </div>
-        <button className="btn-primary" onClick={() => onGeneratePDF({ ...analysis, imgComments })} disabled={generating}>
-          {generating ? '⏳ Generating...' : '⬇ Download PDF'}
-        </button>
+        <div className="flex justify-end mt-4">
+          <button className="btn-primary" onClick={() => onGeneratePDF({ ...analysis, imgComments })} disabled={generating}>
+            {generating ? '⏳ Generating...' : '⬇ Download PDF'}
+          </button>
+        </div>
       </div>
 
       <div className="card overflow-hidden">
@@ -716,9 +749,14 @@ export default function SampleDetail() {
   const [genPDF, setGenPDF] = useState(false)
   const [genAnalysis, setGenAnalysis] = useState(false)
   const [linkedFormulation, setLinkedFormulation] = useState(null)
+  const [reportOpts, setReportOpts] = useState({ title: 'Stability Test Result', footerLeft: '', footerRight: '', preparedBy: '', reviewedBy: '' })
 
   const load = async () => {
-    try { setSample(await getSample(id)) }
+    try {
+      const s = await getSample(id)
+      setSample(s)
+      setReportOpts(prev => ({ ...prev, footerLeft: prev.footerLeft || `FormuLab Hub · ${s.name}` }))
+    }
     catch { navigate('/') }
     finally { setLoading(false) }
   }
@@ -831,13 +869,26 @@ export default function SampleDetail() {
 
   async function handleGeneratePDF() {
     setGenPDF(true)
-    try { await generatePDF({ ...sample, temps }) }
-    finally { setGenPDF(false) }
+    try {
+      await generatePDF({ ...sample, temps }, {
+        title: reportOpts.title,
+        footerLeft: reportOpts.footerLeft,
+        footerRight: reportOpts.footerRight || null,
+        preparedBy: reportOpts.preparedBy,
+        reviewedBy: reportOpts.reviewedBy,
+      })
+    } finally { setGenPDF(false) }
   }
 
   async function handleGenerateAnalysisPDF(analysisData) {
     setGenAnalysis(true)
-    try { await generateAnalysisPDF({ ...sample, temps }, analysisData) }
+    try {
+      await generateAnalysisPDF({ ...sample, temps }, analysisData, {
+        title: analysisData.reportTitle,
+        footerLeft: analysisData.footerLeft,
+        footerRight: analysisData.footerRight || null,
+      })
+    }
     finally { setGenAnalysis(false) }
   }
 
@@ -971,14 +1022,39 @@ export default function SampleDetail() {
 
       {tab === 'Report' && (
         <div>
-          <div className="card p-6 mb-5 flex items-center justify-between">
-            <div>
-              <h3 className="font-semibold text-gray-900">Generate PDF Report</h3>
-              <p className="text-sm text-gray-500 mt-0.5">Landscape A4 matching the stability test template</p>
+          <div className="card p-6 mb-5">
+            <h3 className="font-semibold text-gray-900 mb-4">Report Settings</h3>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Report Title</label>
+                <input className="input w-full" value={reportOpts.title}
+                  onChange={e => setReportOpts(p => ({ ...p, title: e.target.value }))}
+                  placeholder="Stability Test Result" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Prepared By</label>
+                <input className="input w-full" value={reportOpts.preparedBy}
+                  onChange={e => setReportOpts(p => ({ ...p, preparedBy: e.target.value }))}
+                  placeholder="Name / position" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Footer — Left Text</label>
+                <input className="input w-full" value={reportOpts.footerLeft}
+                  onChange={e => setReportOpts(p => ({ ...p, footerLeft: e.target.value }))}
+                  placeholder={`FormuLab Hub · ${sample.name}`} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Footer — Right Text</label>
+                <input className="input w-full" value={reportOpts.footerRight}
+                  onChange={e => setReportOpts(p => ({ ...p, footerRight: e.target.value }))}
+                  placeholder="Blank = auto page numbers (Page 1 of 3)" />
+              </div>
             </div>
-            <button className="btn-primary" onClick={handleGeneratePDF} disabled={genPDF}>
-              {genPDF ? '⏳ Generating...' : '⬇ Download PDF'}
-            </button>
+            <div className="flex justify-end mt-4">
+              <button className="btn-primary" onClick={handleGeneratePDF} disabled={genPDF}>
+                {genPDF ? '⏳ Generating...' : '⬇ Download PDF'}
+              </button>
+            </div>
           </div>
           <div className="card p-6">
             <div className="flex items-center justify-between mb-4">

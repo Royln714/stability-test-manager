@@ -12,7 +12,12 @@ const AMBER_FILL = [254, 243, 199]
 const RED_FILL = [254, 226, 226]
 const HEADER_FILL = [30, 64, 175]
 
-export async function generatePDF(sample) {
+export async function generatePDF(sample, options = {}) {
+  const reportTitle = options.title || 'Stability Test Result'
+  const footerLeft = options.footerLeft !== undefined ? options.footerLeft : `FormuLab Hub · ${sample.name}`
+  const footerRight = options.footerRight !== undefined ? options.footerRight : null
+  const preparedBy = options.preparedBy || ''
+
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' })
   const byTP = Object.fromEntries((sample.results || []).map(r => [r.time_point, r]))
 
@@ -27,11 +32,14 @@ export async function generatePDF(sample) {
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(14)
   doc.setFont('helvetica', 'bold')
-  doc.text('Stability Test Result', margin, 12)
+  doc.text(reportTitle, margin, 12)
 
   doc.setFontSize(8)
   doc.setFont('helvetica', 'normal')
-  doc.text(`Generated: ${new Date().toLocaleDateString('en-GB')}`, pageW - margin, 12, { align: 'right' })
+  const headerRight = preparedBy
+    ? `Generated: ${new Date().toLocaleDateString('en-GB')}   Prepared by: ${preparedBy}`
+    : `Generated: ${new Date().toLocaleDateString('en-GB')}`
+  doc.text(headerRight, pageW - margin, 12, { align: 'right' })
 
   // ── Sample Info ───────────────────────────────────────────────────────────
   const infoY = 24
@@ -114,7 +122,7 @@ export async function generatePDF(sample) {
         )
       }
     })
-    row.push({ content: r?.notes || '', styles: { fontSize: 7 } })
+    row.push({ content: r?.notes || '', styles: { fontSize: 7, overflow: 'linebreak', valign: 'top' } })
     return row
   })
 
@@ -126,13 +134,15 @@ export async function generatePDF(sample) {
     colStyles[base + 2] = { cellWidth: 15, halign: 'center' }
     colStyles[base + 3] = { cellWidth: 12, halign: 'center' }
   })
+  // Notes column — auto width (fills remaining space) with line-break wrapping
+  colStyles[1 + pdfTemps.length * 4] = { overflow: 'linebreak', minCellWidth: 25, valign: 'top' }
 
   autoTable(doc, {
     startY: hasSpec ? infoY + 14 : infoY + 8,
     head: tableHead,
     body: tableBody,
     theme: 'grid',
-    styles: { fontSize: 8, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.2 },
+    styles: { fontSize: 8, cellPadding: 2, lineColor: [200, 200, 200], lineWidth: 0.2, overflow: 'linebreak' },
     headStyles: { fillColor: [248, 250, 252], textColor: [30, 30, 30], fontStyle: 'bold', fontSize: 8 },
     alternateRowStyles: { fillColor: [250, 250, 250] },
     columnStyles: colStyles,
@@ -222,8 +232,9 @@ export async function generatePDF(sample) {
     doc.setFontSize(7)
     doc.setTextColor(160, 160, 160)
     doc.setFont('helvetica', 'normal')
-    doc.text(`FormuLab Hub · ${sample.name}`, margin, pageH - 6)
-    doc.text(`Page ${i} of ${totalPages}`, pageW - margin, pageH - 6, { align: 'right' })
+    if (footerLeft) doc.text(footerLeft, margin, pageH - 6)
+    const rightText = footerRight !== null ? footerRight : `Page ${i} of ${totalPages}`
+    if (rightText) doc.text(rightText, pageW - margin, pageH - 6, { align: 'right' })
   }
 
   // ── Save ──────────────────────────────────────────────────────────────────
@@ -389,7 +400,11 @@ export async function generateFormulationPDF(f) {
 const ANALYSIS_TIME_POINTS = ['Initial', '2_weeks', '1_month', '2_months', '3_months']
 const ANALYSIS_TIME_LABELS = { Initial: 'Initial', '2_weeks': '2 Weeks', '1_month': '1 Month', '2_months': '2 Months', '3_months': '3 Months' }
 
-export async function generateAnalysisPDF(sample, analysisData) {
+export async function generateAnalysisPDF(sample, analysisData, options = {}) {
+  const reportTitle = options.title || 'Stability Analysis Report'
+  const footerLeft = options.footerLeft !== undefined ? options.footerLeft : `${sample.name || 'Analysis'} · FormuLab Hub`
+  const footerRight = options.footerRight !== undefined ? options.footerRight : null
+
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
   const pageW = doc.internal.pageSize.getWidth()
   const pageH = doc.internal.pageSize.getHeight()
@@ -417,7 +432,7 @@ export async function generateAnalysisPDF(sample, analysisData) {
   doc.rect(0, 0, pageW, 18, 'F')
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(13); doc.setFont('helvetica', 'bold')
-  doc.text('Stability Analysis Report', margin, 12)
+  doc.text(reportTitle, margin, 12)
   doc.setFontSize(8); doc.setFont('helvetica', 'normal')
   doc.text(`Generated: ${new Date().toLocaleDateString('en-GB')}`, pageW - margin, 12, { align: 'right' })
 
@@ -548,8 +563,9 @@ export async function generateAnalysisPDF(sample, analysisData) {
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i)
     doc.setFontSize(7); doc.setTextColor(180, 180, 180)
-    doc.text(`${sample.name || 'Analysis'} · FormuLab Hub`, margin, pageH - 4)
-    doc.text(`Page ${i} / ${totalPages}`, pageW - margin, pageH - 4, { align: 'right' })
+    if (footerLeft) doc.text(footerLeft, margin, pageH - 4)
+    const rightText = footerRight !== null ? footerRight : `Page ${i} / ${totalPages}`
+    if (rightText) doc.text(rightText, pageW - margin, pageH - 4, { align: 'right' })
   }
 
   const safeName = (sample.name || 'sample').replace(/[^a-zA-Z0-9_-]/g, '_')
