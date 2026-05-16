@@ -458,111 +458,121 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
   doc.setDrawColor(200, 200, 200); doc.line(margin, y, pageW - margin, y)
   y += 8
 
-  // Image grid constants
-  const IMG_COLS = 3
-  const IMG_GAP = 4
+  // ── Per time point — one page each, images scaled to fit ─────────────────
+  const IMG_GAP = 3
   const contentW = pageW - margin * 2
-  const imgW = (contentW - IMG_GAP * (IMG_COLS - 1)) / IMG_COLS  // ~58mm
-  const imgH = imgW * 0.75                                        // ~44mm
-  const CMT_LINE_H = 3.2  // height per comment line at 7pt
-  const CAP_H = 5         // fixed space for caption
+  const FOOTER_RESERVE = 14  // space kept for footer at page bottom
+  const CAP_LINE_H = 3.5     // caption line height
+  const CMT_LINE_H = 3.2     // per-image comment line height
+  const CAP_FIXED = 5        // reserved below image for caption
 
-  // ── Per time point sections (skip if no images) ──────────────────────────
+  let firstTP = true
+
   for (const tp of ANALYSIS_TIME_POINTS) {
     const comment = (analysisData.comments || {})[tp] || ''
     const imgs = imgsByTP[tp]
+    if (imgs.length === 0) continue
 
-    if (imgs.length === 0) continue   // no images → omit this time point entirely
+    // Every time point on its own page (first one shares the cover page)
+    if (!firstTP) { doc.addPage(); y = margin }
+    firstTP = false
 
-    if (y + 20 > pageH - 40) { doc.addPage(); y = margin }
-
+    // ── Time point header bar ────────────────────────────────────────────
     doc.setFillColor(241, 245, 249)
-    doc.rect(margin, y, pageW - margin * 2, 8, 'F')
+    doc.rect(margin, y, contentW, 8, 'F')
     doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 64, 175)
     doc.text(ANALYSIS_TIME_LABELS[tp], margin + 3, y + 5.5)
     y += 11
 
-    if (imgs.length > 0) {
-      for (let rowStart = 0; rowStart < imgs.length; rowStart += IMG_COLS) {
-        const rowImgs = imgs.slice(rowStart, rowStart + IMG_COLS)
+    // ── Calculate how much height the overall comment needs ───────────────
+    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal')
+    const commentLines = comment ? doc.splitTextToSize(comment, contentW) : []
+    const commentBlockH = commentLines.length > 0 ? commentLines.length * 4.5 + 6 : 0
 
-        // Calculate how many comment lines the tallest cell in this row needs
-        let maxCmtLines = 0
-        for (const img of rowImgs) {
-          const imgId = String(img._id || img.id || '')
-          const imgCmt = imgComments[imgId] || ''
-          if (imgCmt) {
-            doc.setFontSize(7); doc.setFont('helvetica', 'normal')
-            const lines = doc.splitTextToSize(imgCmt, imgW - 4)
-            maxCmtLines = Math.max(maxCmtLines, lines.length)
-          }
-        }
-        const rowH = imgH + CAP_H + maxCmtLines * CMT_LINE_H + 4
+    // ── Calculate per-image caption + comment height (worst case per col) ─
+    const cols = Math.min(imgs.length, 3)
+    const rows = Math.ceil(imgs.length / cols)
+    const imgW = (contentW - IMG_GAP * (cols - 1)) / cols
 
-        if (y + rowH > pageH - 40) { doc.addPage(); y = margin }
-
-        for (let col = 0; col < rowImgs.length; col++) {
-          const img = rowImgs[col]
-          const x = margin + col * (imgW + IMG_GAP)
-          try {
-            doc.addImage(img._data, 'JPEG', x, y, imgW, imgH)
-            doc.setDrawColor(200, 200, 200); doc.rect(x, y, imgW, imgH)
-          } catch {}
-
-          // Caption
-          if (img.caption) {
-            doc.setFontSize(6.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80)
-            const capLines = doc.splitTextToSize(img.caption, imgW - 2)
-            doc.text(capLines[0], x + imgW / 2, y + imgH + 3.5, { align: 'center' })
-          }
-
-          // Full per-image comment (all lines)
-          const imgId = String(img._id || img.id || '')
-          const imgCmt = imgComments[imgId] || ''
-          if (imgCmt) {
-            doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 60, 60)
-            const cmtLines = doc.splitTextToSize(imgCmt, imgW - 4)
-            doc.text(cmtLines, x + imgW / 2, y + imgH + CAP_H + 3, { align: 'center' })
-          }
-        }
-        y += rowH
+    // Find the max comment lines in any single image
+    let maxImgCmtLines = 0
+    for (const img of imgs) {
+      const imgId = String(img._id || img.id || '')
+      const imgCmt = imgComments[imgId] || ''
+      if (imgCmt) {
+        doc.setFontSize(7); doc.setFont('helvetica', 'normal')
+        const lines = doc.splitTextToSize(imgCmt, imgW - 4)
+        maxImgCmtLines = Math.max(maxImgCmtLines, lines.length)
       }
     }
+    const subCellH = CAP_FIXED + maxImgCmtLines * CMT_LINE_H + 2  // below each image
 
-    // Overall time point comment below images
-    if (comment) {
-      if (y + 14 > pageH - 40) { doc.addPage(); y = margin }
-      doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
-      const lines = doc.splitTextToSize(comment, pageW - margin * 2)
-      doc.text(lines, margin, y)
-      y += lines.length * 4.5 + 3
+    // ── Fit image height so all rows fill the remaining page space ────────
+    const availH = pageH - y - commentBlockH - FOOTER_RESERVE
+    let imgH = (availH - subCellH * rows - IMG_GAP * (rows - 1)) / rows
+    imgH = Math.max(imgH, 15)           // never smaller than 15 mm
+    imgH = Math.min(imgH, imgW * 1.4)  // cap aspect ratio
+
+    // ── Render rows ───────────────────────────────────────────────────────
+    for (let rowStart = 0; rowStart < imgs.length; rowStart += cols) {
+      const rowImgs = imgs.slice(rowStart, rowStart + cols)
+
+      for (let col = 0; col < rowImgs.length; col++) {
+        const img = rowImgs[col]
+        const x = margin + col * (imgW + IMG_GAP)
+        try {
+          doc.addImage(img._data, 'JPEG', x, y, imgW, imgH)
+          doc.setDrawColor(200, 200, 200); doc.rect(x, y, imgW, imgH)
+        } catch {}
+
+        // Caption
+        if (img.caption) {
+          doc.setFontSize(6.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80)
+          doc.text(doc.splitTextToSize(img.caption, imgW - 2)[0],
+            x + imgW / 2, y + imgH + CAP_LINE_H, { align: 'center' })
+        }
+
+        // Per-image comment — all lines
+        const imgId = String(img._id || img.id || '')
+        const imgCmt = imgComments[imgId] || ''
+        if (imgCmt) {
+          doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 60, 60)
+          const cmtLines = doc.splitTextToSize(imgCmt, imgW - 4)
+          doc.text(cmtLines, x + imgW / 2, y + imgH + CAP_FIXED + 1, { align: 'center' })
+        }
+      }
+      y += imgH + subCellH + IMG_GAP
     }
 
-    doc.setDrawColor(225, 225, 225); doc.line(margin, y, pageW - margin, y)
-    y += 7
+    // ── Overall observation comment ───────────────────────────────────────
+    if (commentLines.length > 0) {
+      doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
+      doc.text(commentLines, margin, y)
+      y += commentBlockH
+    }
   }
 
-  // ── Summary ───────────────────────────────────────────────────────────────
-  if (analysisData.summary) {
-    if (y + 25 > pageH - 40) { doc.addPage(); y = margin }
-    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(20, 20, 20)
-    doc.text('Summary', margin, y); y += 6
-    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
-    const sumLines = doc.splitTextToSize(analysisData.summary, pageW - margin * 2)
-    if (y + sumLines.length * 4.5 > pageH - 40) { doc.addPage(); y = margin }
-    doc.text(sumLines, margin, y)
-    y += sumLines.length * 4.5 + 10
-  }
+  // ── Summary & Conclusion — new page ───────────────────────────────────────
+  if (analysisData.summary || analysisData.conclusion) {
+    doc.addPage(); y = margin
 
-  // ── Conclusion ────────────────────────────────────────────────────────────
-  if (analysisData.conclusion) {
-    if (y + 25 > pageH - 40) { doc.addPage(); y = margin }
-    doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(20, 20, 20)
-    doc.text('Conclusion', margin, y); y += 6
-    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
-    const conLines = doc.splitTextToSize(analysisData.conclusion, pageW - margin * 2)
-    if (y + conLines.length * 4.5 > pageH - 40) { doc.addPage(); y = margin }
-    doc.text(conLines, margin, y)
+    if (analysisData.summary) {
+      doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(20, 20, 20)
+      doc.text('Summary', margin, y); y += 6
+      doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
+      const sumLines = doc.splitTextToSize(analysisData.summary, contentW)
+      doc.text(sumLines, margin, y)
+      y += sumLines.length * 4.5 + 10
+    }
+
+    if (analysisData.conclusion) {
+      if (y + 25 > pageH - FOOTER_RESERVE) { doc.addPage(); y = margin }
+      doc.setFontSize(10); doc.setFont('helvetica', 'bold'); doc.setTextColor(20, 20, 20)
+      doc.text('Conclusion', margin, y); y += 6
+      doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
+      const conLines = doc.splitTextToSize(analysisData.conclusion, contentW)
+      doc.text(conLines, margin, y)
+    }
   }
 
   // ── Disclaimer footer ─────────────────────────────────────────────────────
