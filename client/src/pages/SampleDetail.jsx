@@ -599,7 +599,7 @@ function MicroscopeGallery({ sampleId, images, onUpdate }) {
   )
 }
 
-// ── Analysis Report Form ──────────────────────────────────────────────────────
+// ── Analysis Report Preview ───────────────────────────────────────────────────
 
 const DEFAULT_DISCLAIMER = 'This stability analysis report is intended for internal research and development purposes only. The results presented are based on controlled laboratory testing conditions and may not reflect real-world performance. All data should be reviewed by a qualified chemist before use in product commercialisation decisions.'
 
@@ -627,127 +627,211 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
     }
   })
 
-  function toggleImage(imgId) {
-    const id = String(imgId)
-    const excluded = analysis.excludedImages || []
-    update({ excludedImages: excluded.includes(id) ? excluded.filter(x => x !== id) : [...excluded, id] })
-  }
-
   function update(patch) {
     const next = { ...analysis, ...patch }
     setAnalysis(next)
     try { localStorage.setItem(storageKey, JSON.stringify(next)) } catch {}
   }
 
+  function toggleImage(imgId) {
+    const id = String(imgId)
+    const excluded = analysis.excludedImages || []
+    update({ excludedImages: excluded.includes(id) ? excluded.filter(x => x !== id) : [...excluded, id] })
+  }
+
   const microImages = (sample.images || []).filter(img => img.category === 'microscope')
   const imgComments = (() => {
     try { return JSON.parse(localStorage.getItem('micro_comments') || '{}') } catch { return {} }
   })()
+  const today = new Date().toLocaleDateString('en-GB')
+
+  // Only time points that have at least one non-excluded image
+  const visibleTPs = TIME_POINTS.filter(tp => {
+    const imgs = microImages.filter(img =>
+      img.time_point === tp &&
+      /\.(jpe?g|png|gif|webp)$/i.test(img.original_name || img.filename || '') &&
+      !(analysis.excludedImages || []).includes(String(img._id || img.id || '')))
+    return imgs.length > 0
+  })
 
   return (
-    <div className="space-y-5">
-      <div className="card p-6">
-        <h3 className="font-semibold text-gray-900 mb-4">Report Settings</h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Report Title</label>
-            <input className="input w-full" value={analysis.reportTitle}
+    <div className="space-y-4">
+
+      {/* ── Settings bar ── */}
+      <div className="card p-4">
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex-1 min-w-[180px]">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Report Title</label>
+            <input className="input w-full text-sm" value={analysis.reportTitle}
               onChange={e => update({ reportTitle: e.target.value })}
               placeholder="Stability Analysis Report" />
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Footer — Left Text</label>
-            <input className="input w-full" value={analysis.footerLeft}
+          <div className="flex-1 min-w-[160px]">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Footer Left</label>
+            <input className="input w-full text-sm" value={analysis.footerLeft}
               onChange={e => update({ footerLeft: e.target.value })}
               placeholder={`FormuLab Hub · ${sample.name}`} />
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1">Footer — Right Text</label>
-            <input className="input w-full" value={analysis.footerRight}
+          <div className="flex-1 min-w-[160px]">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Footer Right</label>
+            <input className="input w-full text-sm" value={analysis.footerRight}
               onChange={e => update({ footerRight: e.target.value })}
-              placeholder="Leave blank for auto page numbers" />
-            <p className="text-xs text-gray-400 mt-1">Blank = automatic "Page 1 of N"</p>
+              placeholder="Blank = auto page numbers" />
           </div>
-        </div>
-        <div className="flex justify-end mt-4">
-          <button className="btn-primary" onClick={() => onGeneratePDF({ ...analysis, imgComments })} disabled={generating}>
+          <button className="btn-primary shrink-0"
+            onClick={() => onGeneratePDF({ ...analysis, imgComments })} disabled={generating}>
             {generating ? '⏳ Generating...' : '⬇ Download PDF'}
           </button>
         </div>
       </div>
 
-      <div className="card overflow-hidden">
-        <div className="px-5 py-3 border-b border-gray-100">
-          <p className="font-semibold text-sm text-gray-700">Time Point Observations</p>
-          <p className="text-xs text-gray-400 mt-0.5">Images and comments from the Images tab appear here. Add an overall observation per time point below.</p>
-        </div>
-        <div className="divide-y divide-gray-100">
+      {/* ── Document preview ── */}
+      <div className="bg-gray-200 rounded-2xl p-4 md:p-8">
+        <div className="max-w-3xl mx-auto bg-white shadow-xl rounded-lg overflow-hidden text-sm">
+
+          {/* Header */}
+          <div className="flex items-center justify-between px-6 py-4" style={{ background: 'rgb(30,64,175)' }}>
+            <input
+              className="bg-transparent text-white font-bold text-lg flex-1 focus:outline-none placeholder-white/50 mr-4"
+              value={analysis.reportTitle}
+              onChange={e => update({ reportTitle: e.target.value })}
+              placeholder="Stability Analysis Report"
+            />
+            <span className="text-white/70 text-xs shrink-0">Generated: {today}</span>
+          </div>
+
+          {/* Sample info */}
+          <div className="px-6 py-3 border-b border-gray-200 flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-700">
+            <span><span className="font-semibold">Sample:</span> {sample.name}</span>
+            {sample.ref_no && <span><span className="font-semibold">Ref:</span> {sample.ref_no}</span>}
+            {sample.date_started && <span><span className="font-semibold">Started:</span> {sample.date_started}</span>}
+          </div>
+
+          {/* Time point sections */}
+          {visibleTPs.length === 0 && (
+            <div className="px-6 py-10 text-center text-gray-400 text-sm italic">
+              No microscope images uploaded yet. Upload images in the Images tab.
+            </div>
+          )}
+
           {TIME_POINTS.map(tp => {
             const tpImgs = microImages.filter(img =>
               img.time_point === tp &&
               /\.(jpe?g|png|gif|webp)$/i.test(img.original_name || img.filename || ''))
+            const visibleImgs = tpImgs.filter(img =>
+              !(analysis.excludedImages || []).includes(String(img._id || img.id || '')))
+
+            // Render the section only if there are any images for this tp (to show the toggle UI)
+            if (tpImgs.length === 0) return null
+
             return (
-              <div key={tp} className="p-5 space-y-3">
-                <p className="text-sm font-semibold text-blue-700">{TIME_LABELS[tp]}</p>
+              <div key={tp} className="border-b border-gray-100">
+                {/* Time point header */}
+                <div className="flex items-center gap-3 px-6 py-2 bg-slate-50">
+                  <div className="flex-1 bg-slate-100 px-3 py-1.5 rounded font-semibold text-blue-700 text-xs">
+                    {TIME_LABELS[tp]}
+                  </div>
+                  {visibleImgs.length === 0 && (
+                    <span className="text-xs text-red-400 italic">all images excluded — section hidden in PDF</span>
+                  )}
+                </div>
+
+                {/* Image grid with toggle overlay */}
                 {tpImgs.length > 0 && (
-                  <div className="space-y-2">
-                    {tpImgs.map(img => {
-                      const imgId = String(img._id || img.id || '')
-                      const excluded = (analysis.excludedImages || []).includes(imgId)
-                      return (
-                        <div key={img.id} className={`flex gap-3 items-start rounded-xl p-2 border transition-all ${excluded ? 'bg-gray-100 border-gray-200 opacity-50' : 'bg-gray-50 border-gray-100'}`}>
-                          <img src={img.url} alt="" className="w-20 h-20 object-cover rounded-lg border border-gray-200 shrink-0" />
-                          <div className="flex-1 space-y-1 min-w-0">
-                            {img.caption && <span className="text-[10px] bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-full">{img.caption}</span>}
-                            {imgComments[imgId] && <p className="text-xs text-gray-600 italic break-words">{imgComments[imgId]}</p>}
+                  <div className="px-6 pt-3 pb-1">
+                    <div className="grid grid-cols-3 gap-3">
+                      {tpImgs.map(img => {
+                        const imgId = String(img._id || img.id || '')
+                        const excluded = (analysis.excludedImages || []).includes(imgId)
+                        return (
+                          <div key={imgId} className="relative group rounded-lg overflow-hidden border border-gray-200">
+                            <img src={img.url} alt=""
+                              className={`w-full h-32 object-cover transition-opacity ${excluded ? 'opacity-25' : 'opacity-100'}`} />
+                            {/* Hover overlay */}
+                            <button
+                              onClick={() => toggleImage(imgId)}
+                              className={`absolute inset-0 flex items-center justify-center text-xs font-semibold transition-all
+                                ${excluded
+                                  ? 'bg-red-500/20 text-red-700'
+                                  : 'bg-black/0 text-white opacity-0 group-hover:opacity-100 group-hover:bg-black/30'}`}
+                            >
+                              {excluded ? 'Excluded — click to include' : 'Click to exclude'}
+                            </button>
+                            {/* Caption */}
+                            {img.caption && (
+                              <div className="px-1 py-1 text-center text-[10px] text-gray-500 font-medium bg-white border-t border-gray-100">
+                                {img.caption}
+                              </div>
+                            )}
+                            {/* Per-image comment */}
+                            {imgComments[imgId] && (
+                              <div className="px-2 py-1 text-[10px] text-gray-500 italic bg-white text-center">
+                                {imgComments[imgId]}
+                              </div>
+                            )}
                           </div>
-                          <button
-                            onClick={() => toggleImage(imgId)}
-                            className={`shrink-0 text-xs px-2 py-1 rounded-lg font-medium border transition-colors ${excluded ? 'bg-red-50 text-red-600 border-red-200 hover:bg-red-100' : 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'}`}
-                            title={excluded ? 'Click to include in PDF' : 'Click to exclude from PDF'}
-                          >
-                            {excluded ? 'Excluded' : 'Included'}
-                          </button>
-                        </div>
-                      )
-                    })}
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
-                <div>
-                  <label className="label">Overall Observation / Comment</label>
-                  <textarea className="input resize-none w-full" rows={2}
-                    placeholder={`Overall observations for ${TIME_LABELS[tp]}...`}
+
+                {/* Overall observation */}
+                <div className="px-6 py-3">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Overall Observation</p>
+                  <textarea
+                    className="w-full text-sm text-gray-700 border border-dashed border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400 focus:bg-blue-50/20 resize-none bg-transparent placeholder-gray-300"
+                    rows={2}
+                    placeholder={`Type observation for ${TIME_LABELS[tp]}...`}
                     value={analysis.comments[tp] || ''}
-                    onChange={e => update({ comments: { ...analysis.comments, [tp]: e.target.value } })} />
+                    onChange={e => update({ comments: { ...analysis.comments, [tp]: e.target.value } })}
+                  />
                 </div>
               </div>
             )
           })}
+
+          {/* Summary */}
+          <div className="px-6 py-4 border-b border-gray-100">
+            <p className="font-bold text-gray-800 mb-2">Summary</p>
+            <textarea
+              className="w-full text-sm text-gray-700 border border-dashed border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400 focus:bg-blue-50/20 resize-none bg-transparent placeholder-gray-300"
+              rows={4}
+              placeholder="Summarise overall stability findings across all time points..."
+              value={analysis.summary}
+              onChange={e => update({ summary: e.target.value })}
+            />
+          </div>
+
+          {/* Conclusion */}
+          <div className="px-6 py-4 border-b border-gray-100">
+            <p className="font-bold text-gray-800 mb-2">Conclusion</p>
+            <textarea
+              className="w-full text-sm text-gray-700 border border-dashed border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-400 focus:bg-blue-50/20 resize-none bg-transparent placeholder-gray-300"
+              rows={4}
+              placeholder="State the final conclusion and product recommendation..."
+              value={analysis.conclusion}
+              onChange={e => update({ conclusion: e.target.value })}
+            />
+          </div>
+
+          {/* Disclaimer */}
+          <div className="px-6 py-3 bg-gray-50 border-t border-gray-200">
+            <textarea
+              className="w-full text-[10px] text-gray-400 bg-transparent focus:outline-none resize-none"
+              rows={3}
+              value={analysis.disclaimer}
+              onChange={e => update({ disclaimer: e.target.value })}
+            />
+          </div>
+
+          {/* Footer preview */}
+          <div className="px-6 py-2 flex justify-between text-[10px] text-gray-400 border-t border-gray-100">
+            <span>{analysis.footerLeft || `FormuLab Hub · ${sample.name}`}</span>
+            <span>{analysis.footerRight || 'Page 1 of N'}</span>
+          </div>
+
         </div>
-      </div>
-
-      <div className="card p-5">
-        <p className="font-semibold text-sm text-gray-700 mb-3">Summary</p>
-        <textarea className="input resize-none w-full" rows={5}
-          placeholder="Summarise the overall stability findings across all time points..."
-          value={analysis.summary}
-          onChange={e => update({ summary: e.target.value })} />
-      </div>
-
-      <div className="card p-5">
-        <p className="font-semibold text-sm text-gray-700 mb-3">Conclusion</p>
-        <textarea className="input resize-none w-full" rows={5}
-          placeholder="State the final conclusion and product recommendation..."
-          value={analysis.conclusion}
-          onChange={e => update({ conclusion: e.target.value })} />
-      </div>
-
-      <div className="card p-5">
-        <p className="font-semibold text-sm text-gray-700 mb-1">Disclaimer</p>
-        <p className="text-xs text-gray-400 mb-2">Appears at the bottom of the PDF report</p>
-        <textarea className="input resize-none w-full text-xs text-gray-600" rows={3}
-          value={analysis.disclaimer}
-          onChange={e => update({ disclaimer: e.target.value })} />
       </div>
     </div>
   )
