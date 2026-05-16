@@ -458,13 +458,17 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
   doc.setDrawColor(200, 200, 200); doc.line(margin, y, pageW - margin, y)
   y += 8
 
-  // ── Per time point — one page each, images scaled to fit ─────────────────
-  const IMG_GAP = 3
+  // ── Fixed grid: 3 columns × 4 rows = 12 images per page ─────────────────
+  const COLS = 3
+  const ROWS_PER_PAGE = 4
+  const MAX_PER_PAGE = COLS * ROWS_PER_PAGE   // 12
+  const IMG_GAP = 3                           // mm between images
   const contentW = pageW - margin * 2
-  const FOOTER_RESERVE = 14  // space kept for footer at page bottom
-  const CAP_LINE_H = 3.5     // caption line height
-  const CMT_LINE_H = 3.2     // per-image comment line height
-  const CAP_FIXED = 5        // reserved below image for caption
+  const imgW = (contentW - (COLS - 1) * IMG_GAP) / COLS  // ~58 mm
+  const imgH = 52                             // fixed height in mm
+  const SUB_CELL_H = 10                       // below each image: caption + comment
+  const ROW_H = imgH + SUB_CELL_H + IMG_GAP  // total height per row
+  const FOOTER_RESERVE = 14
 
   let firstTP = true
 
@@ -473,82 +477,65 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
     const imgs = imgsByTP[tp]
     if (imgs.length === 0) continue
 
-    // Every time point on its own page (first one shares the cover page)
+    // Each time point starts on its own page (first shares the cover page)
     if (!firstTP) { doc.addPage(); y = margin }
     firstTP = false
 
-    // ── Time point header bar ────────────────────────────────────────────
+    // Time point header bar
     doc.setFillColor(241, 245, 249)
     doc.rect(margin, y, contentW, 8, 'F')
     doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(30, 64, 175)
     doc.text(ANALYSIS_TIME_LABELS[tp], margin + 3, y + 5.5)
     y += 11
 
-    // ── Calculate how much height the overall comment needs ───────────────
-    doc.setFontSize(8.5); doc.setFont('helvetica', 'normal')
-    const commentLines = comment ? doc.splitTextToSize(comment, contentW) : []
-    const commentBlockH = commentLines.length > 0 ? commentLines.length * 4.5 + 6 : 0
+    // Render images in batches of 12 (one batch per page)
+    for (let start = 0; start < imgs.length; start += MAX_PER_PAGE) {
+      if (start > 0) { doc.addPage(); y = margin }   // continuation page for same tp
 
-    // ── Calculate per-image caption + comment height (worst case per col) ─
-    const cols = Math.min(imgs.length, 3)
-    const rows = Math.ceil(imgs.length / cols)
-    const imgW = (contentW - IMG_GAP * (cols - 1)) / cols
+      const batch = imgs.slice(start, start + MAX_PER_PAGE)
 
-    // Find the max comment lines in any single image
-    let maxImgCmtLines = 0
-    for (const img of imgs) {
-      const imgId = String(img._id || img.id || '')
-      const imgCmt = imgComments[imgId] || ''
-      if (imgCmt) {
-        doc.setFontSize(7); doc.setFont('helvetica', 'normal')
-        const lines = doc.splitTextToSize(imgCmt, imgW - 4)
-        maxImgCmtLines = Math.max(maxImgCmtLines, lines.length)
-      }
-    }
-    const subCellH = CAP_FIXED + maxImgCmtLines * CMT_LINE_H + 2  // below each image
-
-    // ── Fit image height so all rows fill the remaining page space ────────
-    const availH = pageH - y - commentBlockH - FOOTER_RESERVE
-    let imgH = (availH - subCellH * rows - IMG_GAP * (rows - 1)) / rows
-    imgH = Math.max(imgH, 15)           // never smaller than 15 mm
-    imgH = Math.min(imgH, imgW * 1.4)  // cap aspect ratio
-
-    // ── Render rows ───────────────────────────────────────────────────────
-    for (let rowStart = 0; rowStart < imgs.length; rowStart += cols) {
-      const rowImgs = imgs.slice(rowStart, rowStart + cols)
-
-      for (let col = 0; col < rowImgs.length; col++) {
-        const img = rowImgs[col]
+      for (let i = 0; i < batch.length; i++) {
+        const img = batch[i]
+        const col = i % COLS
+        const row = Math.floor(i / COLS)
         const x = margin + col * (imgW + IMG_GAP)
+        const imgY = y + row * ROW_H
+
         try {
-          doc.addImage(img._data, 'JPEG', x, y, imgW, imgH)
-          doc.setDrawColor(200, 200, 200); doc.rect(x, y, imgW, imgH)
+          doc.addImage(img._data, 'JPEG', x, imgY, imgW, imgH)
+          doc.setDrawColor(200, 200, 200); doc.rect(x, imgY, imgW, imgH)
         } catch {}
 
-        // Caption
+        // Caption (first line only — fixed space)
         if (img.caption) {
           doc.setFontSize(6.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80)
           doc.text(doc.splitTextToSize(img.caption, imgW - 2)[0],
-            x + imgW / 2, y + imgH + CAP_LINE_H, { align: 'center' })
+            x + imgW / 2, imgY + imgH + 3.5, { align: 'center' })
         }
 
-        // Per-image comment — all lines
+        // Per-image comment (up to 2 lines)
         const imgId = String(img._id || img.id || '')
         const imgCmt = imgComments[imgId] || ''
         if (imgCmt) {
-          doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 60, 60)
-          const cmtLines = doc.splitTextToSize(imgCmt, imgW - 4)
-          doc.text(cmtLines, x + imgW / 2, y + imgH + CAP_FIXED + 1, { align: 'center' })
+          doc.setFontSize(6); doc.setFont('helvetica', 'normal'); doc.setTextColor(60, 60, 60)
+          const cmtLines = doc.splitTextToSize(imgCmt, imgW - 4).slice(0, 2)
+          doc.text(cmtLines, x + imgW / 2, imgY + imgH + 6.5, { align: 'center' })
         }
       }
-      y += imgH + subCellH + IMG_GAP
+
+      const rowsUsed = Math.ceil(batch.length / COLS)
+      y += rowsUsed * ROW_H
     }
 
-    // ── Overall observation comment ───────────────────────────────────────
-    if (commentLines.length > 0) {
+    // Overall observation comment (below the last batch of images)
+    if (comment) {
       doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
+      const commentLines = doc.splitTextToSize(comment, contentW)
+      if (y + commentLines.length * 4.5 > pageH - FOOTER_RESERVE) {
+        doc.addPage(); y = margin
+      }
       doc.text(commentLines, margin, y)
-      y += commentBlockH
+      y += commentLines.length * 4.5 + 5
     }
   }
 
