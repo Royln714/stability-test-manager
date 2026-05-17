@@ -406,11 +406,16 @@ const ANALYSIS_TIME_POINTS = ['Initial', '2_weeks', '1_month', '2_months', '3_mo
 const ANALYSIS_TIME_LABELS = { Initial: 'Initial', '2_weeks': '2 Weeks', '1_month': '1 Month', '2_months': '2 Months', '3_months': '3 Months' }
 
 export async function generateAnalysisPDF(sample, analysisData, options = {}) {
-  const reportTitle = options.title || 'Stability Analysis Report'
+  const reportTitle = options.title || analysisData.reportTitle || 'Stability Analysis Report'
   const footerLeft = options.footerLeft !== undefined ? options.footerLeft : `${sample.name || 'Analysis'} · FormuLab Hub`
   const footerRight = options.footerRight !== undefined ? options.footerRight : null
+  const orientation = analysisData.orientation || 'portrait'
+  const companyName = analysisData.companyName || ''
+  const companyAddress = analysisData.companyAddress || ''
+  const logoData = analysisData.logoData || ''
+  const reportDate = analysisData.reportDate || new Date().toLocaleDateString('en-GB')
 
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
+  const doc = new jsPDF({ orientation, unit: 'mm', format: 'a4' })
   const pageW = doc.internal.pageSize.getWidth()
   const pageH = doc.internal.pageSize.getHeight()
   const margin = 14
@@ -435,16 +440,44 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
   }
 
   // ── Header ────────────────────────────────────────────────────────────────
+  const HAS_COMPANY = companyName || companyAddress
+  const HEADER_H = HAS_COMPANY ? 28 : 18
   doc.setFillColor(...HEADER_FILL)
-  doc.rect(0, 0, pageW, 18, 'F')
+  doc.rect(0, 0, pageW, HEADER_H, 'F')
+
+  // Logo (left side of header)
+  let logoEndX = margin
+  if (logoData) {
+    try {
+      const match = logoData.match(/^data:image\/(\w+);base64,/)
+      const logoFmt = match ? match[1].toUpperCase().replace('JPG', 'JPEG') : 'JPEG'
+      const b64 = logoData.includes(',') ? logoData.split(',')[1] : logoData
+      const logoSize = HEADER_H - 4
+      doc.addImage(b64, logoFmt, margin, 2, logoSize, logoSize, '', 'MEDIUM')
+      logoEndX = margin + logoSize + 3
+    } catch {}
+  }
+
+  // Title + date (left/center area of header)
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(13); doc.setFont('helvetica', 'bold')
-  doc.text(reportTitle, margin, 12)
-  doc.setFontSize(8); doc.setFont('helvetica', 'normal')
-  doc.text(`Generated: ${new Date().toLocaleDateString('en-GB')}`, pageW - margin, 12, { align: 'right' })
+  doc.text(reportTitle, logoEndX, HAS_COMPANY ? 11 : 12)
+  doc.setFontSize(7.5); doc.setFont('helvetica', 'normal')
+  doc.text(`Date: ${reportDate}`, logoEndX, HAS_COMPANY ? 18 : 16)
+
+  // Company name + address (right side of header)
+  if (companyName) {
+    doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 255, 255)
+    doc.text(companyName, pageW - margin, HAS_COMPANY ? 11 : 12, { align: 'right' })
+  }
+  if (companyAddress) {
+    doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(210, 225, 255)
+    const addrLines = doc.splitTextToSize(companyAddress, 90).slice(0, 2)
+    doc.text(addrLines, pageW - margin, HAS_COMPANY ? 17 : 16, { align: 'right' })
+  }
 
   // ── Sample info ───────────────────────────────────────────────────────────
-  let y = 24
+  let y = HEADER_H + 8
   doc.setTextColor(30, 30, 30); doc.setFontSize(9)
   doc.setFont('helvetica', 'bold'); doc.text('Sample:', margin, y)
   doc.setFont('helvetica', 'normal'); doc.text(sample.name || '', margin + 18, y)
@@ -458,16 +491,16 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
   doc.setDrawColor(200, 200, 200); doc.line(margin, y, pageW - margin, y)
   y += 8
 
-  // ── Fixed grid: 3 columns × 4 rows = 12 images per page ─────────────────
-  const COLS = 3
-  const ROWS_PER_PAGE = 4
-  const MAX_PER_PAGE = COLS * ROWS_PER_PAGE   // 12
-  const IMG_GAP = 3                           // mm between images
+  // ── Grid layout (portrait: 3×4=12 | landscape: 4×3=12) ───────────────────
+  const COLS = orientation === 'landscape' ? 4 : 3
+  const ROWS_PER_PAGE = orientation === 'landscape' ? 3 : 4
+  const MAX_PER_PAGE = COLS * ROWS_PER_PAGE
+  const IMG_GAP = 3
   const contentW = pageW - margin * 2
-  const imgW = (contentW - (COLS - 1) * IMG_GAP) / COLS  // ~58 mm
-  const imgH = 52                             // fixed height in mm
-  const SUB_CELL_H = 10                       // below each image: caption + comment
-  const ROW_H = imgH + SUB_CELL_H + IMG_GAP  // total height per row
+  const imgW = (contentW - (COLS - 1) * IMG_GAP) / COLS
+  const imgH = orientation === 'landscape' ? 40 : 52
+  const SUB_CELL_H = 10
+  const ROW_H = imgH + SUB_CELL_H + IMG_GAP
   const FOOTER_RESERVE = 14
 
   let firstTP = true
@@ -477,7 +510,6 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
     const imgs = imgsByTP[tp]
     if (imgs.length === 0) continue
 
-    // Each time point starts on its own page (first shares the cover page)
     if (!firstTP) { doc.addPage(); y = margin }
     firstTP = false
 
@@ -488,9 +520,8 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
     doc.text(ANALYSIS_TIME_LABELS[tp], margin + 3, y + 5.5)
     y += 11
 
-    // Render images in batches of 12 (one batch per page)
     for (let start = 0; start < imgs.length; start += MAX_PER_PAGE) {
-      if (start > 0) { doc.addPage(); y = margin }   // continuation page for same tp
+      if (start > 0) { doc.addPage(); y = margin }
 
       const batch = imgs.slice(start, start + MAX_PER_PAGE)
 
@@ -506,14 +537,12 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
           doc.setDrawColor(200, 200, 200); doc.rect(x, imgY, imgW, imgH)
         } catch {}
 
-        // Caption (first line only — fixed space)
         if (img.caption) {
           doc.setFontSize(6.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(80, 80, 80)
           doc.text(doc.splitTextToSize(img.caption, imgW - 2)[0],
             x + imgW / 2, imgY + imgH + 3.5, { align: 'center' })
         }
 
-        // Per-image comment (up to 2 lines)
         const imgId = String(img._id || img.id || '')
         const imgCmt = imgComments[imgId] || ''
         if (imgCmt) {
@@ -527,7 +556,6 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
       y += rowsUsed * ROW_H
     }
 
-    // Overall observation comment (below the last batch of images)
     if (comment) {
       doc.setFontSize(8.5); doc.setFont('helvetica', 'normal'); doc.setTextColor(50, 50, 50)
       const commentLines = doc.splitTextToSize(comment, contentW)

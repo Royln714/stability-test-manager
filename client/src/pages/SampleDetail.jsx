@@ -605,24 +605,37 @@ const DEFAULT_DISCLAIMER = 'This stability analysis report is intended for inter
 
 function AnalysisReport({ sample, onGeneratePDF, generating }) {
   const storageKey = `analysis_${sample.id}`
+  const logoInputRef = useRef()
+  const today = new Date().toLocaleDateString('en-GB')
+
   const [analysis, setAnalysis] = useState(() => {
     try {
       const saved = localStorage.getItem(storageKey)
       const defaults = {
         comments: {}, summary: '', conclusion: '', disclaimer: DEFAULT_DISCLAIMER,
         reportTitle: 'Stability Analysis Report',
+        reportDate: today,
         footerLeft: `FormuLab Hub · ${sample.name}`,
         footerRight: '',
         excludedImages: [],
+        companyName: '',
+        companyAddress: '',
+        logoData: '',
+        orientation: 'portrait',
       }
       return saved ? { ...defaults, ...JSON.parse(saved) } : defaults
     } catch {
       return {
         comments: {}, summary: '', conclusion: '', disclaimer: DEFAULT_DISCLAIMER,
         reportTitle: 'Stability Analysis Report',
+        reportDate: today,
         footerLeft: `FormuLab Hub · ${sample.name}`,
         footerRight: '',
         excludedImages: [],
+        companyName: '',
+        companyAddress: '',
+        logoData: '',
+        orientation: 'portrait',
       }
     }
   })
@@ -639,13 +652,20 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
     update({ excludedImages: excluded.includes(id) ? excluded.filter(x => x !== id) : [...excluded, id] })
   }
 
+  function handleLogoUpload(e) {
+    const file = e.target.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = ev => update({ logoData: ev.target.result })
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
   const microImages = (sample.images || []).filter(img => img.category === 'microscope')
   const imgComments = (() => {
     try { return JSON.parse(localStorage.getItem('micro_comments') || '{}') } catch { return {} }
   })()
-  const today = new Date().toLocaleDateString('en-GB')
 
-  // Only time points that have at least one non-excluded image
   const visibleTPs = TIME_POINTS.filter(tp => {
     const imgs = microImages.filter(img =>
       img.time_point === tp &&
@@ -654,50 +674,135 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
     return imgs.length > 0
   })
 
+  const isLandscape = analysis.orientation === 'landscape'
+
   return (
     <div className="space-y-4">
 
-      {/* ── Settings bar ── */}
-      <div className="card p-4">
+      {/* ── Settings card ── */}
+      <div className="card p-4 space-y-3">
+
+        {/* Row 1: Title, Date, Orientation, Download */}
         <div className="flex flex-wrap gap-3 items-end">
-          <div className="flex-1 min-w-[180px]">
+          <div className="flex-1 min-w-[200px]">
             <label className="block text-xs font-semibold text-gray-500 mb-1">Report Title</label>
             <input className="input w-full text-sm" value={analysis.reportTitle}
-              onChange={e => update({ reportTitle: e.target.value })}
-              placeholder="Stability Analysis Report" />
+              onChange={e => update({ reportTitle: e.target.value })} placeholder="Stability Analysis Report" />
           </div>
-          <div className="flex-1 min-w-[160px]">
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Footer Left</label>
-            <input className="input w-full text-sm" value={analysis.footerLeft}
-              onChange={e => update({ footerLeft: e.target.value })}
-              placeholder={`FormuLab Hub · ${sample.name}`} />
+          <div className="w-36">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Report Date</label>
+            <input className="input w-full text-sm" value={analysis.reportDate}
+              onChange={e => update({ reportDate: e.target.value })} placeholder="DD/MM/YYYY" />
           </div>
-          <div className="flex-1 min-w-[160px]">
-            <label className="block text-xs font-semibold text-gray-500 mb-1">Footer Right</label>
-            <input className="input w-full text-sm" value={analysis.footerRight}
-              onChange={e => update({ footerRight: e.target.value })}
-              placeholder="Blank = auto page numbers" />
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Orientation</label>
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
+              {[['portrait', '▯ Portrait'], ['landscape', '▭ Landscape']].map(([o, label]) => (
+                <button key={o} onClick={() => update({ orientation: o })}
+                  className={`px-3 py-1 text-xs rounded-md font-medium transition-all ${analysis.orientation === o ? 'bg-white text-blue-600 shadow' : 'text-gray-500 hover:text-gray-700'}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
           <button className="btn-primary shrink-0"
             onClick={() => onGeneratePDF({ ...analysis, imgComments })} disabled={generating}>
             {generating ? '⏳ Generating...' : '⬇ Download PDF'}
           </button>
         </div>
+
+        {/* Row 2: Logo + Company info */}
+        <div className="flex flex-wrap gap-3 items-start">
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Logo</label>
+            <div className="w-20 h-14 border-2 border-dashed border-gray-200 rounded-lg flex items-center justify-center cursor-pointer hover:border-blue-300 transition-colors overflow-hidden bg-gray-50"
+              onClick={() => logoInputRef.current?.click()}>
+              {analysis.logoData
+                ? <img src={analysis.logoData} className="w-full h-full object-contain p-1" alt="logo" />
+                : <span className="text-gray-400 text-[10px] text-center leading-tight px-1">Click to<br/>add logo</span>}
+            </div>
+            <input ref={logoInputRef} type="file" className="hidden" accept="image/*" onChange={handleLogoUpload} />
+            {analysis.logoData && (
+              <button className="text-[10px] text-red-400 hover:text-red-600 mt-1 block"
+                onClick={() => update({ logoData: '' })}>Remove</button>
+            )}
+          </div>
+          <div className="flex-1 min-w-[160px]">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Company Name</label>
+            <input className="input w-full text-sm" value={analysis.companyName}
+              onChange={e => update({ companyName: e.target.value })} placeholder="Your Company Name" />
+          </div>
+          <div className="flex-1 min-w-[220px]">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Company Address</label>
+            <textarea className="input w-full text-sm resize-none" rows={2} value={analysis.companyAddress}
+              onChange={e => update({ companyAddress: e.target.value })} placeholder="Street, City, State, Country..." />
+          </div>
+        </div>
+
+        {/* Row 3: Footer */}
+        <div className="flex flex-wrap gap-3 items-end">
+          <div className="flex-1 min-w-[160px]">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Footer Left</label>
+            <input className="input w-full text-sm" value={analysis.footerLeft}
+              onChange={e => update({ footerLeft: e.target.value })} placeholder={`FormuLab Hub · ${sample.name}`} />
+          </div>
+          <div className="flex-1 min-w-[160px]">
+            <label className="block text-xs font-semibold text-gray-500 mb-1">Footer Right</label>
+            <input className="input w-full text-sm" value={analysis.footerRight}
+              onChange={e => update({ footerRight: e.target.value })} placeholder="Blank = auto page numbers" />
+          </div>
+        </div>
       </div>
 
       {/* ── Document preview ── */}
-      <div className="bg-gray-200 rounded-2xl p-4 md:p-8">
-        <div className="max-w-3xl mx-auto bg-white shadow-xl rounded-lg overflow-hidden text-sm">
+      <div className="bg-gray-200 rounded-2xl p-4 md:p-8 overflow-x-auto">
+        <div className={`mx-auto bg-white shadow-xl rounded-lg overflow-hidden text-sm ${isLandscape ? 'max-w-5xl' : 'max-w-3xl'}`}>
 
           {/* Header */}
-          <div className="flex items-center justify-between px-6 py-4" style={{ background: 'rgb(30,64,175)' }}>
-            <input
-              className="bg-transparent text-white font-bold text-lg flex-1 focus:outline-none placeholder-white/50 mr-4"
-              value={analysis.reportTitle}
-              onChange={e => update({ reportTitle: e.target.value })}
-              placeholder="Stability Analysis Report"
-            />
-            <span className="text-white/70 text-xs shrink-0">Generated: {today}</span>
+          <div className="flex items-stretch gap-3 px-5 py-3" style={{ background: 'rgb(30,64,175)', minHeight: 64 }}>
+            {/* Logo slot */}
+            <div className="shrink-0 flex items-center">
+              {analysis.logoData ? (
+                <img src={analysis.logoData} className="max-h-14 max-w-[56px] object-contain rounded cursor-pointer"
+                  alt="logo" title="Click to change logo" onClick={() => logoInputRef.current?.click()} />
+              ) : (
+                <button onClick={() => logoInputRef.current?.click()}
+                  className="border border-dashed border-white/40 rounded text-white/50 text-[10px] px-2 py-1 hover:border-white/70 hover:text-white/70 transition-colors leading-tight w-14 h-12 flex items-center justify-center text-center">
+                  + Logo
+                </button>
+              )}
+            </div>
+            {/* Title + date */}
+            <div className="flex-1 flex flex-col justify-center min-w-0">
+              <input
+                className="bg-transparent text-white font-bold text-lg focus:outline-none placeholder-white/50 w-full"
+                value={analysis.reportTitle}
+                onChange={e => update({ reportTitle: e.target.value })}
+                placeholder="Stability Analysis Report"
+              />
+              <input
+                className="bg-transparent text-white/70 text-xs focus:outline-none placeholder-white/40 mt-0.5 w-full"
+                value={analysis.reportDate}
+                onChange={e => update({ reportDate: e.target.value })}
+                placeholder="DD/MM/YYYY"
+              />
+            </div>
+            {/* Company info */}
+            <div className="shrink-0 flex flex-col justify-center text-right max-w-[200px]">
+              <input
+                className="bg-transparent text-white text-xs font-semibold text-right focus:outline-none placeholder-white/40 w-full"
+                value={analysis.companyName}
+                onChange={e => update({ companyName: e.target.value })}
+                placeholder="Company Name"
+              />
+              <textarea
+                className="bg-transparent text-white/70 text-[10px] text-right focus:outline-none placeholder-white/30 resize-none w-full mt-0.5"
+                rows={2}
+                value={analysis.companyAddress}
+                onChange={e => update({ companyAddress: e.target.value })}
+                placeholder="Company address..."
+              />
+            </div>
           </div>
 
           {/* Sample info */}
@@ -721,12 +826,10 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
             const visibleImgs = tpImgs.filter(img =>
               !(analysis.excludedImages || []).includes(String(img._id || img.id || '')))
 
-            // Render the section only if there are any images for this tp (to show the toggle UI)
             if (tpImgs.length === 0) return null
 
             return (
               <div key={tp} className="border-b border-gray-100">
-                {/* Time point header */}
                 <div className="flex items-center gap-3 px-6 py-2 bg-slate-50">
                   <div className="flex-1 bg-slate-100 px-3 py-1.5 rounded font-semibold text-blue-700 text-xs">
                     {TIME_LABELS[tp]}
@@ -736,10 +839,9 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
                   )}
                 </div>
 
-                {/* Image grid with toggle overlay */}
                 {tpImgs.length > 0 && (
                   <div className="px-6 pt-3 pb-1">
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className={`grid gap-3 ${isLandscape ? 'grid-cols-4' : 'grid-cols-3'}`}>
                       {tpImgs.map(img => {
                         const imgId = String(img._id || img.id || '')
                         const excluded = (analysis.excludedImages || []).includes(imgId)
@@ -747,7 +849,6 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
                           <div key={imgId} className="relative group rounded-lg overflow-hidden border border-gray-200">
                             <img src={img.url} alt=""
                               className={`w-full h-32 object-cover transition-opacity ${excluded ? 'opacity-25' : 'opacity-100'}`} />
-                            {/* Hover overlay */}
                             <button
                               onClick={() => toggleImage(imgId)}
                               className={`absolute inset-0 flex items-center justify-center text-xs font-semibold transition-all
@@ -757,13 +858,11 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
                             >
                               {excluded ? 'Excluded — click to include' : 'Click to exclude'}
                             </button>
-                            {/* Caption */}
                             {img.caption && (
                               <div className="px-1 py-1 text-center text-[10px] text-gray-500 font-medium bg-white border-t border-gray-100">
                                 {img.caption}
                               </div>
                             )}
-                            {/* Per-image comment */}
                             {imgComments[imgId] && (
                               <div className="px-2 py-1 text-[10px] text-gray-500 italic bg-white text-center">
                                 {imgComments[imgId]}
@@ -776,7 +875,6 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
                   </div>
                 )}
 
-                {/* Overall observation */}
                 <div className="px-6 py-3">
                   <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Overall Observation</p>
                   <textarea
