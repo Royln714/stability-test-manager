@@ -439,45 +439,53 @@ export async function generateAnalysisPDF(sample, analysisData, options = {}) {
     imgsByTP[tp] = loaded
   }
 
-  // ── Header ────────────────────────────────────────────────────────────────
+  // ── Header — letterhead style (no background colour) ─────────────────────
   const HAS_COMPANY = companyName || companyAddress
-  const HEADER_H = HAS_COMPANY ? 28 : 18
-  doc.setFillColor(...HEADER_FILL)
-  doc.rect(0, 0, pageW, HEADER_H, 'F')
+  const HEADER_H = HAS_COMPANY ? 26 : 14
 
-  // Logo (left side of header)
-  let logoEndX = margin
+  // Company info — top left
+  let companyBottomY = margin
+  if (companyName) {
+    doc.setTextColor(20, 20, 20)
+    doc.setFontSize(10); doc.setFont('helvetica', 'bold')
+    doc.text(companyName, margin, companyBottomY)
+    companyBottomY += 5
+  }
+  if (companyAddress) {
+    doc.setTextColor(80, 80, 80)
+    doc.setFontSize(7); doc.setFont('helvetica', 'normal')
+    const addrLines = doc.splitTextToSize(companyAddress, pageW / 2 - margin).slice(0, 3)
+    doc.text(addrLines, margin, companyBottomY)
+    companyBottomY += addrLines.length * 3.5
+  }
+
+  // Logo — top right
   if (logoData) {
     try {
       const match = logoData.match(/^data:image\/(\w+);base64,/)
       const logoFmt = match ? match[1].toUpperCase().replace('JPG', 'JPEG') : 'JPEG'
       const b64 = logoData.includes(',') ? logoData.split(',')[1] : logoData
-      const logoSize = HEADER_H - 4
-      doc.addImage(b64, logoFmt, margin, 2, logoSize, logoSize, '', 'MEDIUM')
-      logoEndX = margin + logoSize + 3
+      const logoH = Math.max(HEADER_H, 16)
+      const logoW2 = logoH * 2
+      doc.addImage(b64, logoFmt, pageW - margin - logoW2, margin - 2, logoW2, logoH, '', 'MEDIUM')
     } catch {}
   }
 
-  // Title + date (left/center area of header)
-  doc.setTextColor(255, 255, 255)
-  doc.setFontSize(13); doc.setFont('helvetica', 'bold')
-  doc.text(reportTitle, logoEndX, HAS_COMPANY ? 11 : 12)
-  doc.setFontSize(7.5); doc.setFont('helvetica', 'normal')
-  doc.text(`Date: ${reportDate}`, logoEndX, HAS_COMPANY ? 18 : 16)
+  // Divider line below letterhead
+  const headerEndY = Math.max(companyBottomY + 3, margin + HEADER_H)
+  doc.setDrawColor(180, 180, 180); doc.setLineWidth(0.5)
+  doc.line(margin, headerEndY, pageW - margin, headerEndY)
 
-  // Company name + address (right side of header)
-  if (companyName) {
-    doc.setFontSize(9); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 255, 255)
-    doc.text(companyName, pageW - margin, HAS_COMPANY ? 11 : 12, { align: 'right' })
-  }
-  if (companyAddress) {
-    doc.setFontSize(7); doc.setFont('helvetica', 'normal'); doc.setTextColor(210, 225, 255)
-    const addrLines = doc.splitTextToSize(companyAddress, 90).slice(0, 2)
-    doc.text(addrLines, pageW - margin, HAS_COMPANY ? 17 : 16, { align: 'right' })
-  }
+  // Report title + date (below divider)
+  let y = headerEndY + 6
+  doc.setTextColor(20, 20, 20)
+  doc.setFontSize(13); doc.setFont('helvetica', 'bold')
+  doc.text(reportTitle, margin, y)
+  doc.setFontSize(8); doc.setFont('helvetica', 'normal'); doc.setTextColor(100, 100, 100)
+  doc.text(`Date: ${reportDate}`, pageW - margin, y, { align: 'right' })
+  y += 8
 
   // ── Sample info ───────────────────────────────────────────────────────────
-  let y = HEADER_H + 8
   doc.setTextColor(30, 30, 30); doc.setFontSize(9)
   doc.setFont('helvetica', 'bold'); doc.text('Sample:', margin, y)
   doc.setFont('helvetica', 'normal'); doc.text(sample.name || '', margin + 18, y)

@@ -758,50 +758,50 @@ function AnalysisReport({ sample, onGeneratePDF, generating }) {
       <div className="bg-gray-200 rounded-2xl p-4 md:p-8 overflow-x-auto">
         <div className={`mx-auto bg-white shadow-xl rounded-lg overflow-hidden text-sm ${isLandscape ? 'max-w-5xl' : 'max-w-3xl'}`}>
 
-          {/* Header */}
-          <div className="flex items-stretch gap-3 px-5 py-3" style={{ background: 'rgb(30,64,175)', minHeight: 64 }}>
-            {/* Logo slot */}
-            <div className="shrink-0 flex items-center">
-              {analysis.logoData ? (
-                <img src={analysis.logoData} className="max-h-14 max-w-[56px] object-contain rounded cursor-pointer"
-                  alt="logo" title="Click to change logo" onClick={() => logoInputRef.current?.click()} />
-              ) : (
-                <button onClick={() => logoInputRef.current?.click()}
-                  className="border border-dashed border-white/40 rounded text-white/50 text-[10px] px-2 py-1 hover:border-white/70 hover:text-white/70 transition-colors leading-tight w-14 h-12 flex items-center justify-center text-center">
-                  + Logo
-                </button>
-              )}
-            </div>
-            {/* Title + date */}
-            <div className="flex-1 flex flex-col justify-center min-w-0">
+          {/* Header — letterhead style */}
+          <div className="flex items-start gap-4 px-6 pt-5 pb-3 border-b-2 border-gray-200">
+            {/* Left: Company name + address */}
+            <div className="flex-1 min-w-0">
               <input
-                className="bg-transparent text-white font-bold text-lg focus:outline-none placeholder-white/50 w-full"
-                value={analysis.reportTitle}
-                onChange={e => update({ reportTitle: e.target.value })}
-                placeholder="Stability Analysis Report"
-              />
-              <input
-                className="bg-transparent text-white/70 text-xs focus:outline-none placeholder-white/40 mt-0.5 w-full"
-                value={analysis.reportDate}
-                onChange={e => update({ reportDate: e.target.value })}
-                placeholder="DD/MM/YYYY"
-              />
-            </div>
-            {/* Company info */}
-            <div className="shrink-0 flex flex-col justify-center text-right max-w-[200px]">
-              <input
-                className="bg-transparent text-white text-xs font-semibold text-right focus:outline-none placeholder-white/40 w-full"
+                className="text-gray-900 font-bold text-sm focus:outline-none placeholder-gray-300 w-full bg-transparent"
                 value={analysis.companyName}
                 onChange={e => update({ companyName: e.target.value })}
                 placeholder="Company Name"
               />
               <textarea
-                className="bg-transparent text-white/70 text-[10px] text-right focus:outline-none placeholder-white/30 resize-none w-full mt-0.5"
+                className="text-gray-500 text-[10px] focus:outline-none placeholder-gray-300 resize-none w-full bg-transparent mt-0.5 leading-snug"
                 rows={2}
                 value={analysis.companyAddress}
                 onChange={e => update({ companyAddress: e.target.value })}
                 placeholder="Company address..."
               />
+            </div>
+            {/* Center: Title + date */}
+            <div className="flex-1 flex flex-col items-center min-w-0">
+              <input
+                className="bg-transparent text-gray-900 font-bold text-base focus:outline-none placeholder-gray-300 w-full text-center"
+                value={analysis.reportTitle}
+                onChange={e => update({ reportTitle: e.target.value })}
+                placeholder="Stability Analysis Report"
+              />
+              <input
+                className="bg-transparent text-gray-400 text-[10px] focus:outline-none placeholder-gray-300 mt-0.5 w-full text-center"
+                value={analysis.reportDate}
+                onChange={e => update({ reportDate: e.target.value })}
+                placeholder="DD/MM/YYYY"
+              />
+            </div>
+            {/* Right: Logo */}
+            <div className="shrink-0 flex flex-col items-end">
+              {analysis.logoData ? (
+                <img src={analysis.logoData} className="max-h-16 max-w-[80px] object-contain cursor-pointer"
+                  alt="logo" title="Click to change logo" onClick={() => logoInputRef.current?.click()} />
+              ) : (
+                <button onClick={() => logoInputRef.current?.click()}
+                  className="border border-dashed border-gray-300 rounded text-gray-400 text-[10px] px-2 py-1 hover:border-blue-300 hover:text-blue-400 transition-colors leading-tight w-16 h-12 flex items-center justify-center text-center">
+                  + Logo
+                </button>
+              )}
             </div>
           </div>
 
