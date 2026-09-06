@@ -67,15 +67,16 @@ export default function Formulations() {
   const [samples, setSamples] = useState([])
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
+  const [lastImportedFile, setLastImportedFile] = useState(null)
+  const [lastImportedIds, setLastImportedIds] = useState([])
+  const [importMessage, setImportMessage] = useState('')
   const importRef = useRef(null)
   const navigate = useNavigate()
 
-  async function handleWorkbookImport(event) {
-    const file = event.target.files[0]
-    event.target.value = ''
-    if (!file) return
+  async function importWorkbook(file, replaceIds = []) {
     setImporting(true)
     try {
+      for (const id of replaceIds) await deleteFormulation(id)
       let sheets
       if (file.name.toLowerCase().endsWith('.pdf')) {
         sheets = [{ name: file.name.replace(/\.pdf$/i, ''), rows: await extractPdfRows(file) }]
@@ -87,15 +88,30 @@ export default function Formulations() {
       const failedSheets = parsedSheets.filter(sheet => sheet.formulation.import_error)
       const validSheets = parsedSheets.filter(sheet => !sheet.formulation.import_error)
       if (!validSheets.length) throw new Error(`No formulation data could be extracted. ${failedSheets.map(sheet => `${sheet.name}: ${sheet.formulation.import_error}`).join(' ')}`)
+      const createdIds = []
       for (const sheet of validSheets) {
         const { import_error, ...formulation } = sheet.formulation
-        await createFormulation(formulation)
+        const created = await createFormulation(formulation)
+        createdIds.push(created.id)
       }
       setList(await getFormulations())
-      alert(`Imported ${validSheets.length} formulation sheet${validSheets.length === 1 ? '' : 's'}.${failedSheets.length ? ` Skipped: ${failedSheets.map(sheet => `${sheet.name} (${sheet.formulation.import_error})`).join(', ')}` : ''}`)
+      setLastImportedIds(createdIds)
+      setImportMessage(`Imported ${validSheets.length} sheet${validSheets.length === 1 ? '' : 's'}.${failedSheets.length ? ` Skipped: ${failedSheets.map(sheet => `${sheet.name} (${sheet.formulation.import_error})`).join(', ')}` : ''}`)
     } catch (error) {
-      alert(error.response?.data?.error || 'Could not import the workbook.')
+      setImportMessage(error.response?.data?.error || error.message || 'Could not import the workbook.')
     } finally { setImporting(false) }
+  }
+
+  async function handleWorkbookImport(event) {
+    const file = event.target.files[0]
+    event.target.value = ''
+    if (!file) return
+    setLastImportedFile(file)
+    await importWorkbook(file)
+  }
+
+  async function redoWorkbookImport() {
+    if (lastImportedFile) await importWorkbook(lastImportedFile, lastImportedIds)
   }
 
   useEffect(() => {
@@ -136,10 +152,12 @@ export default function Formulations() {
         </div>
         <div className="flex gap-2">
           <button className="btn-secondary text-sm" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing...' : '⬆ Import Workbook'}</button>
+          {lastImportedFile && <button className="btn-secondary text-sm" onClick={redoWorkbookImport} disabled={importing}>↻ Redo extraction</button>}
           <input ref={importRef} type="file" className="hidden" accept=".xls,.xlsx,.pdf" onChange={handleWorkbookImport} />
           <button className="btn-primary" onClick={handleNew}>+ New Formulation</button>
         </div>
       </div>
+      {importMessage && <p className="text-xs text-gray-500 mb-4">{importMessage}</p>}
 
       {list.length === 0 ? (
         <div className="text-center py-20">

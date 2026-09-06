@@ -76,11 +76,17 @@ function BulkImportPanel({ samples, onImported }) {
   const [selected, setSelected] = useState(new Set())
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [sourceFile, setSourceFile] = useState(null)
 
   async function readFile(event) {
     const file = event.target.files[0]
     event.target.value = ''
     if (!file) return
+    setSourceFile(file)
+    await extractFile(file)
+  }
+
+  async function extractFile(file) {
     try {
       const parsed = file.name.toLowerCase().endsWith('.pdf')
         ? parseImportMatrix(await extractPdfRows(file), samples)
@@ -104,7 +110,7 @@ function BulkImportPanel({ samples, onImported }) {
     <section className="card p-4 mb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h2 className="font-semibold text-gray-900">Bulk Excel Import</h2><p className="text-xs text-gray-500 mt-1">Import edited Summary exports with a preview before saving.</p></div>
-        <button className="btn-secondary text-xs" onClick={() => fileRef.current?.click()}>Choose XLS/XLSX file</button>
+        <div className="flex gap-2"><button className="btn-secondary text-xs" onClick={() => fileRef.current?.click()}>Choose XLS/XLSX file</button>{sourceFile && <button className="btn-secondary text-xs" onClick={() => extractFile(sourceFile)}>↻ Redo extraction</button>}</div>
         <input ref={fileRef} type="file" className="hidden" accept=".xls,.xlsx,.pdf" onChange={readFile} />
       </div>
       {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
