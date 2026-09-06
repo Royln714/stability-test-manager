@@ -335,7 +335,7 @@ app.delete('/api/agent/files/:name', (req, res) => {
 });
 
 app.post('/api/agent/chat', async (req, res) => {
-  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'OPENAI_API_KEY is not configured.' });
+  if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not configured.' });
   const prompt = String(req.body?.message || '').trim();
   if (!prompt) return res.status(400).json({ error: 'Message is required.' });
 
@@ -347,21 +347,23 @@ app.post('/api/agent/chat', async (req, res) => {
       results: results.filter(result => result.sample_id === sample._id).map(out),
     }));
     const context = JSON.stringify({ samples: sampleContext, inbox: readAgentContext(req.user.id) }).slice(0, 60000);
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
       body: JSON.stringify({
-        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
-        temperature: 0.1,
-        messages: [
-          { role: 'system', content: 'You are a stability testing data assistant. Use only the supplied app data and inbox files. Answer clearly. You may propose structured measurements, but never claim that data was saved and never invent missing values. Tell the user to review and confirm any proposed changes.' },
-          { role: 'user', content: `Application context:\n${context}\n\nUser request:\n${prompt}` },
-        ],
+        model: process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-latest',
+        max_tokens: 1200,
+        system: 'You are a stability testing data assistant. Use only the supplied app data and inbox files. Answer clearly. You may propose structured measurements, but never claim that data was saved and never invent missing values. Tell the user to review and confirm any proposed changes.',
+        messages: [{ role: 'user', content: `Application context:\n${context}\n\nUser request:\n${prompt}` }],
       }),
     });
     const payload = await response.json();
     if (!response.ok) return res.status(502).json({ error: payload.error?.message || 'AI request failed.' });
-    res.json({ message: payload.choices?.[0]?.message?.content || 'The agent returned no response.' });
+    res.json({ message: payload.content?.find(item => item.type === 'text')?.text || 'The agent returned no response.' });
   } catch (error) {
     res.status(500).json({ error: error.message || 'Agent request failed.' });
   }
