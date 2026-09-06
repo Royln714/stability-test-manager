@@ -21,7 +21,9 @@ const PORT = process.env.PORT || 3001;
 
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
-const agentInboxDir = path.join(uploadsDir, 'agent-inbox');
+const agentInboxDir = process.env.AGENT_INBOX_DIR
+  ? path.resolve(process.env.AGENT_INBOX_DIR)
+  : path.join(uploadsDir, 'agent-inbox');
 if (!fs.existsSync(agentInboxDir)) fs.mkdirSync(agentInboxDir, { recursive: true });
 
 const backupsDir = path.join(__dirname, 'backups');
