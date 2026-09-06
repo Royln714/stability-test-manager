@@ -4,6 +4,7 @@ import { getSample, updateSample, updateSampleStatus, upsertResult, deleteResult
 import DataEntryModal from '../components/DataEntryModal'
 import Charts from '../components/Charts'
 import { generatePDF, generateAnalysisPDF } from '../pdfReport'
+import * as XLSX from 'xlsx'
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -971,12 +972,21 @@ export default function SampleDetail() {
   function handleExportCSV() {
     const temps = sample ? parseTempConfig(sample.temp_config) : DEFAULT_TEMPS
     const byTP = Object.fromEntries(sample.results.map(r => [r.time_point, r]))
+    const sampleInfo = [
+      ['Sample Name', sample.name || ''],
+      ['Ref No', sample.ref_no || ''],
+      ['Date Started', sample.date_started || ''],
+      ['Status', STATUS_CFG[sample.status || 'active']?.label || sample.status || 'Active'],
+      ['Remarks', sample.remarks || ''],
+      ['pH Specification', [sample.spec_ph_min, sample.spec_ph_max].some(v => v != null && v !== '') ? `${sample.spec_ph_min ?? ''} - ${sample.spec_ph_max ?? ''}` : ''],
+      ['Viscosity Specification (cP)', [sample.spec_visc_min, sample.spec_visc_max].some(v => v != null && v !== '') ? `${sample.spec_visc_min ?? ''} - ${sample.spec_visc_max ?? ''}` : ''],
+    ]
     const header = ['Time Point']
     temps.forEach(t => {
       header.push(`pH ${t.value}°C`, `Viscosity ${t.value}°C`, `SG ${t.value}°C`, `Turbidity NTU ${t.value}°C`, `Spindle ${t.value}°C`, `RPM ${t.value}°C`)
     })
     header.push('Appearance', 'Color', 'Odor', 'Phase Sep', 'Microbial', 'Notes', 'Measured At')
-    const rows = [header]
+    const rows = [['Sample Summary', ''], ...sampleInfo, [], header]
     TIME_POINTS.forEach(tp => {
       const r = byTP[tp]
       const row = [TIME_LABELS[tp]]
@@ -1003,6 +1013,57 @@ export default function SampleDetail() {
     a.download = `${sample.name.replace(/[^a-z0-9]/gi, '_')}_stability.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  function handleExportExcel() {
+    const temps = parseTempConfig(sample.temp_config)
+    const byTP = Object.fromEntries(sample.results.map(r => [r.time_point, r]))
+    const dataHeader = ['Time Point']
+    temps.forEach(t => {
+      dataHeader.push(`pH ${t.value}°C`, `Viscosity ${t.value}°C`, `SG ${t.value}°C`, `Turbidity NTU ${t.value}°C`, `Spindle ${t.value}°C`, `RPM ${t.value}°C`)
+    })
+    dataHeader.push('Appearance', 'Color', 'Odor', 'Phase Sep', 'Microbial', 'Notes', 'Measured At')
+
+    const dataRows = TIME_POINTS.map(tp => {
+      const r = byTP[tp]
+      const row = [TIME_LABELS[tp]]
+      temps.forEach((t, i) => {
+        const suf = SUFFIXES[i]
+        const isNA = (t.na_tps || []).includes(tp)
+        row.push(
+          isNA ? 'N/A' : (r?.[`ph_${suf}`] ?? ''),
+          isNA ? 'N/A' : (r?.[`viscosity_${suf}`] ?? ''),
+          isNA ? 'N/A' : (r?.[`sg_${suf}`] ?? ''),
+          isNA ? 'N/A' : (r?.[`turbidity_${suf}`] ?? ''),
+          isNA ? 'N/A' : (r?.[`spindle_${suf}`] ?? ''),
+          isNA ? 'N/A' : (r?.[`rpm_${suf}`] ?? ''),
+        )
+      })
+      row.push(r?.appearance || '', r?.color_obs || '', r?.odor || '', r?.phase_sep || '', r?.microbial || '', r?.notes || '', r?.measured_at || '')
+      return row
+    })
+
+    const summaryRows = [
+      ['Field', 'Value'],
+      ['Sample Name', sample.name || ''],
+      ['Ref No', sample.ref_no || ''],
+      ['Date Started', sample.date_started || ''],
+      ['Status', STATUS_CFG[sample.status || 'active']?.label || sample.status || 'Active'],
+      ['Remarks', sample.remarks || ''],
+      ['pH Specification', [sample.spec_ph_min, sample.spec_ph_max].some(v => v != null && v !== '') ? `${sample.spec_ph_min ?? ''} - ${sample.spec_ph_max ?? ''}` : ''],
+      ['Viscosity Specification (cP)', [sample.spec_visc_min, sample.spec_visc_max].some(v => v != null && v !== '') ? `${sample.spec_visc_min ?? ''} - ${sample.spec_visc_max ?? ''}` : ''],
+      ['Temperature Conditions', temps.map(t => `${t.value}°C`).join(', ')],
+    ]
+
+    const workbook = XLSX.utils.book_new()
+    const summarySheet = XLSX.utils.aoa_to_sheet(summaryRows)
+    const dataSheet = XLSX.utils.aoa_to_sheet([dataHeader, ...dataRows])
+    summarySheet['!cols'] = [{ wch: 30 }, { wch: 60 }]
+    dataSheet['!cols'] = dataHeader.map((_, i) => ({ wch: i === 0 ? 16 : 18 }))
+    XLSX.utils.book_append_sheet(workbook, summarySheet, 'Sample Summary')
+    XLSX.utils.book_append_sheet(workbook, dataSheet, 'Recorded Data')
+    const safeName = (sample.name || 'sample').replace(/[^a-z0-9]/gi, '_')
+    XLSX.writeFile(workbook, `${safeName}_stability.xlsx`)
   }
 
   useEffect(() => { load() }, [id])
@@ -1162,6 +1223,7 @@ export default function SampleDetail() {
           </div>
           <div className="flex gap-2 shrink-0">
             <button className="btn-secondary text-xs py-1.5" onClick={handleExportCSV} title="Download CSV">⬇ CSV</button>
+            <button className="btn-secondary text-xs py-1.5" onClick={handleExportExcel} title="Download Excel workbook">⬇ Excel</button>
             <button className="btn-secondary text-xs py-1.5" onClick={handleDuplicate} title="Duplicate sample">Copy</button>
             <button className="btn-secondary text-xs py-1.5" onClick={() => setEditOpen(true)}>Edit</button>
           </div>

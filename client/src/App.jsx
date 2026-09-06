@@ -8,6 +8,7 @@ import AdminPanel from './pages/AdminPanel'
 import LoginPage from './pages/LoginPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import ComparisonPage from './pages/ComparisonPage'
+import SummaryPage from './pages/SummaryPage'
 import { getMe, logout, getSamples } from './api'
 
 const TP_DAYS = { Initial: 0, '2_weeks': 14, '1_month': 30, '2_months': 60, '3_months': 90 }
@@ -92,6 +93,7 @@ function Navbar({ user, onLogout }) {
   const isForm = loc.pathname.startsWith('/formulations')
   const isAdmin = loc.pathname.startsWith('/admin')
   const isCompare = loc.pathname.startsWith('/compare')
+  const isSummary = loc.pathname.startsWith('/summary')
 
   return (
     <nav className="bg-white border-b border-gray-200 sticky top-0 z-40 no-print">
@@ -110,6 +112,9 @@ function Navbar({ user, onLogout }) {
             </Link>
             <Link to="/compare" className={`px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${isCompare ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}>
               Compare
+            </Link>
+            <Link to="/summary" className={`px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${isSummary ? 'bg-blue-50 text-blue-700' : 'text-gray-600 hover:bg-gray-100'}`}>
+              Summary
             </Link>
             {user?.role === 'admin' && (
               <Link to="/admin" className={`px-2.5 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap ${isAdmin ? 'bg-purple-50 text-purple-700' : 'text-gray-600 hover:bg-gray-100'}`}>
@@ -187,6 +192,7 @@ export default function App() {
           <Route path="/formulations" element={<Formulations />} />
           <Route path="/formulations/:id" element={<FormulationSheet />} />
           <Route path="/compare" element={<ComparisonPage />} />
+          <Route path="/summary" element={<SummaryPage />} />
           <Route path="/admin" element={
             user.role === 'admin'
               ? <AdminPanel currentUser={user} />
