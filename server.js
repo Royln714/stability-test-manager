@@ -21,6 +21,8 @@ const PORT = process.env.PORT || 3001;
 
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+const agentInboxDir = path.join(uploadsDir, 'agent-inbox');
+if (!fs.existsSync(agentInboxDir)) fs.mkdirSync(agentInboxDir, { recursive: true });
 
 const backupsDir = path.join(__dirname, 'backups');
 if (!fs.existsSync(backupsDir)) fs.mkdirSync(backupsDir, { recursive: true });
@@ -274,6 +276,95 @@ const uploadImport = multer({
   storage: importStorage,
   limits: { fileSize: 200 * 1024 * 1024 },
   fileFilter: (req, file, cb) => cb(null, /\.(json|zip)$/i.test(file.originalname))
+});
+
+const agentUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      const userInboxDir = path.join(agentInboxDir, String(req.user.id).replace(/[^a-zA-Z0-9_-]/g, '_'));
+      fs.mkdirSync(userInboxDir, { recursive: true });
+      cb(null, userInboxDir);
+    },
+    filename: (req, file, cb) => {
+      const safeName = path.basename(file.originalname).replace(/[^a-zA-Z0-9._-]/g, '_');
+      cb(null, `${Date.now()}-${safeName}`);
+    },
+  }),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, /\.(txt|csv|json|md)$/i.test(file.originalname)),
+});
+
+function getAgentFiles(userId) {
+  const userInboxDir = path.join(agentInboxDir, String(userId).replace(/[^a-zA-Z0-9_-]/g, '_'));
+  if (!fs.existsSync(userInboxDir)) return [];
+  return fs.readdirSync(userInboxDir, { withFileTypes: true })
+    .filter(entry => entry.isFile())
+    .map(entry => {
+      const filePath = path.join(userInboxDir, entry.name);
+      const stat = fs.statSync(filePath);
+      return { name: entry.name, size: stat.size, updated_at: stat.mtime.toISOString() };
+    })
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+}
+
+function readAgentContext(userId) {
+  const userInboxDir = path.join(agentInboxDir, String(userId).replace(/[^a-zA-Z0-9_-]/g, '_'));
+  const files = getAgentFiles(userId).slice(0, 10).map(file => {
+    const filePath = path.join(userInboxDir, file.name);
+    return `FILE: ${file.name}\n${fs.readFileSync(filePath, 'utf8').slice(0, 10000)}`;
+  });
+  return files.join('\n\n') || 'No files are currently in the agent inbox.';
+}
+
+app.get('/api/agent/files', (req, res) => {
+  res.json(getAgentFiles(req.user.id));
+});
+
+app.post('/api/agent/files', agentUpload.single('file'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'Upload a TXT, CSV, JSON, or Markdown file.' });
+  res.status(201).json({ name: req.file.filename, size: req.file.size });
+});
+
+app.delete('/api/agent/files/:name', (req, res) => {
+  const name = path.basename(req.params.name);
+  const userInboxDir = path.join(agentInboxDir, String(req.user.id).replace(/[^a-zA-Z0-9_-]/g, '_'));
+  const filePath = path.join(userInboxDir, name);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+  fs.unlinkSync(filePath);
+  res.json({ success: true });
+});
+
+app.post('/api/agent/chat', async (req, res) => {
+  if (!process.env.OPENAI_API_KEY) return res.status(503).json({ error: 'OPENAI_API_KEY is not configured.' });
+  const prompt = String(req.body?.message || '').trim();
+  if (!prompt) return res.status(400).json({ error: 'Message is required.' });
+
+  try {
+    const samples = await col('samples').find({}, { projection: { _id: 1, name: 1, ref_no: 1, status: 1, date_started: 1, remarks: 1 } }).toArray();
+    const results = await col('results').find({}).toArray();
+    const sampleContext = samples.map(sample => ({
+      ...out(sample),
+      results: results.filter(result => result.sample_id === sample._id).map(out),
+    }));
+    const context = JSON.stringify({ samples: sampleContext, inbox: readAgentContext(req.user.id) }).slice(0, 60000);
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
+      body: JSON.stringify({
+        model: process.env.OPENAI_MODEL || 'gpt-4o-mini',
+        temperature: 0.1,
+        messages: [
+          { role: 'system', content: 'You are a stability testing data assistant. Use only the supplied app data and inbox files. Answer clearly. You may propose structured measurements, but never claim that data was saved and never invent missing values. Tell the user to review and confirm any proposed changes.' },
+          { role: 'user', content: `Application context:\n${context}\n\nUser request:\n${prompt}` },
+        ],
+      }),
+    });
+    const payload = await response.json();
+    if (!response.ok) return res.status(502).json({ error: payload.error?.message || 'AI request failed.' });
+    res.json({ message: payload.choices?.[0]?.message?.content || 'The agent returned no response.' });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Agent request failed.' });
+  }
 });
 
 // ── AUTH ──────────────────────────────────────────────────────────────────────

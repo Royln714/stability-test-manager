@@ -23,3 +23,7 @@ services:
         sync: false
       - key: SMTP_FROM
         sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini

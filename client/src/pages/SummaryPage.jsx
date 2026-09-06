@@ -1,6 +1,6 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { getSample, getSamples } from '../api'
+import { askAgent, deleteAgentFile, getAgentFiles, getSample, getSamples, uploadAgentFile } from '../api'
 
 const TIME_POINTS = ['Initial', '2_weeks', '1_month', '2_months', '3_months']
 const TIME_LABELS = { Initial: 'Initial', '2_weeks': '2 Weeks', '1_month': '1 Month', '2_months': '2 Months', '3_months': '3 Months' }
@@ -44,6 +44,71 @@ function getDataRows(rows) {
     ...SUFFIXES.flatMap(suffix => ['ph', 'viscosity', 'sg', 'turbidity', 'spindle', 'rpm'].map(field => row[`${field}_${suffix}`])),
     row.appearance, row.color, row.odor, row.phaseSep, row.microbial, row.notes, row.measuredAt,
   ])
+}
+
+function AgentPanel() {
+  const fileRef = useRef(null)
+  const [files, setFiles] = useState([])
+  const [message, setMessage] = useState('')
+  const [conversation, setConversation] = useState([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => { getAgentFiles().then(setFiles).catch(() => {}) }, [])
+
+  async function handleUpload(event) {
+    const file = event.target.files[0]
+    if (!file) return
+    setError('')
+    try {
+      await uploadAgentFile(file)
+      setFiles(await getAgentFiles())
+    } catch (err) {
+      setError(err.response?.data?.error || 'File upload failed.')
+    } finally { event.target.value = '' }
+  }
+
+  async function handleAsk(event) {
+    event.preventDefault()
+    const prompt = message.trim()
+    if (!prompt || busy) return
+    setMessage(''); setError(''); setConversation(previous => [...previous, { role: 'user', text: prompt }]); setBusy(true)
+    try {
+      const result = await askAgent(prompt)
+      setConversation(previous => [...previous, { role: 'agent', text: result.message }])
+    } catch (err) {
+      setError(err.response?.data?.error || 'The agent could not respond.')
+    } finally { setBusy(false) }
+  }
+
+  async function handleDelete(name) {
+    try { await deleteAgentFile(name); setFiles(await getAgentFiles()) }
+    catch { setError('Could not remove the file.') }
+  }
+
+  return (
+    <section className="card p-4 mb-5">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+        <div>
+          <h2 className="font-semibold text-gray-900">AI Data Assistant</h2>
+          <p className="text-xs text-gray-500 mt-1">Ask about samples or upload TXT, CSV, JSON, or Markdown reference files. The agent only proposes changes; it never saves measurements automatically.</p>
+        </div>
+        <button className="btn-secondary text-xs" onClick={() => fileRef.current?.click()}>+ Add reference file</button>
+        <input ref={fileRef} type="file" className="hidden" accept=".txt,.csv,.json,.md" onChange={handleUpload} />
+      </div>
+      {files.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-3">
+          {files.map(file => <span key={file.name} className="inline-flex items-center gap-1.5 rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-600">{file.name}<button className="text-gray-400 hover:text-red-500" title="Remove file" onClick={() => handleDelete(file.name)}>×</button></span>)}
+        </div>
+      )}
+      {conversation.length > 0 && <div className="max-h-64 overflow-y-auto space-y-2 mb-3 rounded-lg bg-gray-50 p-3">{conversation.map((item, index) => <div key={index} className={item.role === 'user' ? 'text-right' : 'text-left'}><span className={`inline-block max-w-[90%] whitespace-pre-wrap rounded-lg px-3 py-2 text-xs ${item.role === 'user' ? 'bg-blue-600 text-white' : 'bg-white border border-gray-200 text-gray-700'}`}>{item.text}</span></div>)}</div>}
+      {error && <p className="text-xs text-red-600 mb-2">{error}</p>}
+      <form onSubmit={handleAsk} className="flex gap-2">
+        <input className="input flex-1 text-sm" value={message} onChange={event => setMessage(event.target.value)} placeholder="Ask about samples, missing data, or paste measurements to review..." />
+        <button className="btn-primary text-sm" disabled={busy || !message.trim()}>{busy ? 'Thinking...' : 'Ask agent'}</button>
+      </form>
+    </section>
+  )
 }
 
 export default function SummaryPage() {
@@ -133,6 +198,8 @@ export default function SummaryPage() {
           ⬇ Download Selected XLS ({selectedSamples.length})
         </button>
       </div>
+
+      <AgentPanel />
 
       <div className="card p-4 mb-5">
         <div className="flex flex-wrap items-center gap-3">

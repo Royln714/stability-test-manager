@@ -86,6 +86,23 @@ export const updateImageCaption = (id, caption) =>
 export const deleteImage = id =>
   api.delete(`/images/${id}`).then(r => r.data)
 
+// ── AI Agent ──────────────────────────────────────────────────────────────────
+
+export const getAgentFiles = () =>
+  api.get('/agent/files').then(r => r.data)
+
+export const uploadAgentFile = file => {
+  const fd = new FormData()
+  fd.append('file', file)
+  return api.post('/agent/files', fd, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data)
+}
+
+export const deleteAgentFile = name =>
+  api.delete(`/agent/files/${encodeURIComponent(name)}`).then(r => r.data)
+
+export const askAgent = message =>
+  api.post('/agent/chat', { message }).then(r => r.data)
+
 // ── Formulations ──────────────────────────────────────────────────────────────
 
 export const getFormulations = () =>
