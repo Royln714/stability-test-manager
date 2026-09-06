@@ -15,6 +15,7 @@ const dns = require('dns');
 dns.setDefaultResultOrder('ipv4first');
 const { MongoClient, ServerApiVersion } = require('mongodb');
 const cloudinary = require('cloudinary').v2;
+const XLSX = require('xlsx');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -292,8 +293,8 @@ const agentUpload = multer({
       cb(null, `${Date.now()}-${safeName}`);
     },
   }),
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => cb(null, /\.(txt|csv|json|md)$/i.test(file.originalname)),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => cb(null, /\.(txt|csv|json|md|xls|xlsx|pdf|png|jpe?g|webp)$/i.test(file.originalname)),
 });
 
 function getAgentFiles(userId) {
@@ -309,13 +310,33 @@ function getAgentFiles(userId) {
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at));
 }
 
-function readAgentContext(userId) {
+function readAgentContent(userId) {
   const userInboxDir = path.join(agentInboxDir, String(userId).replace(/[^a-zA-Z0-9_-]/g, '_'));
-  const files = getAgentFiles(userId).slice(0, 10).map(file => {
+  const content = [];
+  getAgentFiles(userId).slice(0, 10).forEach(file => {
     const filePath = path.join(userInboxDir, file.name);
-    return `FILE: ${file.name}\n${fs.readFileSync(filePath, 'utf8').slice(0, 10000)}`;
+    const extension = path.extname(file.name).toLowerCase();
+    if (['.png', '.jpg', '.jpeg', '.webp'].includes(extension)) {
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : 'image/jpeg', data: fs.readFileSync(filePath).toString('base64') },
+      });
+      content.push({ type: 'text', text: `Attached image file: ${file.name}` });
+    } else if (extension === '.pdf') {
+      content.push({
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: fs.readFileSync(filePath).toString('base64') },
+      });
+      content.push({ type: 'text', text: `Attached PDF file: ${file.name}` });
+    } else if (['.xls', '.xlsx'].includes(extension)) {
+      const workbook = XLSX.readFile(filePath, { cellText: true, cellDates: true });
+      const sheets = workbook.SheetNames.map(sheetName => `SHEET: ${sheetName}\n${XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName])}`).join('\n\n');
+      content.push({ type: 'text', text: `FILE: ${file.name}\n${sheets.slice(0, 30000)}` });
+    } else {
+      content.push({ type: 'text', text: `FILE: ${file.name}\n${fs.readFileSync(filePath, 'utf8').slice(0, 10000)}` });
+    }
   });
-  return files.join('\n\n') || 'No files are currently in the agent inbox.';
+  return content.length ? content : [{ type: 'text', text: 'No files are currently in the agent inbox.' }];
 }
 
 app.get('/api/agent/files', (req, res) => {
@@ -348,7 +369,8 @@ app.post('/api/agent/chat', async (req, res) => {
       ...out(sample),
       results: results.filter(result => result.sample_id === sample._id).map(out),
     }));
-    const context = JSON.stringify({ samples: sampleContext, inbox: readAgentContext(req.user.id) }).slice(0, 60000);
+    const fileContent = readAgentContent(req.user.id);
+    const context = JSON.stringify({ samples: sampleContext }).slice(0, 60000);
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -360,7 +382,10 @@ app.post('/api/agent/chat', async (req, res) => {
         model: process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-latest',
         max_tokens: 1200,
         system: 'You are a stability testing data assistant. Use only the supplied app data and inbox files. Answer clearly. You may propose structured measurements, but never claim that data was saved and never invent missing values. Tell the user to review and confirm any proposed changes.',
-        messages: [{ role: 'user', content: `Application context:\n${context}\n\nUser request:\n${prompt}` }],
+        messages: [{ role: 'user', content: [
+          { type: 'text', text: `Application context:\n${context}\n\nUse the attached reference files when relevant. User request:\n${prompt}` },
+          ...fileContent,
+        ] }],
       }),
     });
     const payload = await response.json();

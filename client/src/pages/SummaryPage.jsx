@@ -91,10 +91,10 @@ function AgentPanel() {
       <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
         <div>
           <h2 className="font-semibold text-gray-900">AI Data Assistant</h2>
-          <p className="text-xs text-gray-500 mt-1">Ask about samples or upload TXT, CSV, JSON, or Markdown reference files. The agent only proposes changes; it never saves measurements automatically.</p>
+          <p className="text-xs text-gray-500 mt-1">Ask about samples or upload XLS, XLSX, PDF, PNG, JPG, CSV, JSON, TXT, or Markdown files. The agent only proposes changes; it never saves measurements automatically.</p>
         </div>
         <button className="btn-secondary text-xs" onClick={() => fileRef.current?.click()}>+ Add reference file</button>
-        <input ref={fileRef} type="file" className="hidden" accept=".txt,.csv,.json,.md" onChange={handleUpload} />
+        <input ref={fileRef} type="file" className="hidden" accept=".txt,.csv,.json,.md,.xls,.xlsx,.pdf,.png,.jpg,.jpeg,.webp" onChange={handleUpload} />
       </div>
       {files.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-3">
