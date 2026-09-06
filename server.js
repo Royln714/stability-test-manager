@@ -359,6 +359,7 @@ app.delete('/api/agent/files/:name', (req, res) => {
 
 app.post('/api/agent/chat', async (req, res) => {
   if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not configured.' });
+  if (!process.env.ANTHROPIC_WORKSPACE_ID) return res.status(503).json({ error: 'ANTHROPIC_WORKSPACE_ID is not configured.' });
   const prompt = String(req.body?.message || '').trim();
   if (!prompt) return res.status(400).json({ error: 'Message is required.' });
 
@@ -377,6 +378,7 @@ app.post('/api/agent/chat', async (req, res) => {
         'Content-Type': 'application/json',
         'x-api-key': process.env.ANTHROPIC_API_KEY,
         'anthropic-version': '2023-06-01',
+        'anthropic-workspace-id': process.env.ANTHROPIC_WORKSPACE_ID,
       },
       body: JSON.stringify({
         model: process.env.ANTHROPIC_MODEL || 'claude-3-5-haiku-latest',
