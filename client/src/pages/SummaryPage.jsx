@@ -22,7 +22,8 @@ function findColumn(headers, ...names) {
 }
 
 function parseImportRows(workbook, samples) {
-  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+  const dataSheetName = workbook.SheetNames.find(name => normalizeHeader(name) === 'recorded data') || workbook.SheetNames[0]
+  const sheet = workbook.Sheets[dataSheetName]
   const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
   const headers = matrix[0] || []
   const sampleNameColumn = findColumn(headers, 'sample name', 'sample')
