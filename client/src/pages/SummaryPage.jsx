@@ -17,7 +17,8 @@ function normalizeHeader(value) {
 
 function findColumn(headers, ...names) {
   const normalized = headers.map(normalizeHeader)
-  const index = normalized.findIndex(header => names.includes(header))
+  const candidates = names.map(normalizeHeader)
+  const index = normalized.findIndex(header => candidates.some(candidate => header === candidate || header.includes(candidate)))
   return index === -1 ? null : index
 }
 
@@ -26,18 +27,23 @@ function parseImportRows(workbook, samples) {
   const sheet = workbook.Sheets[dataSheetName]
   const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
   const headers = matrix[0] || []
-  const sampleNameColumn = findColumn(headers, 'sample name', 'sample')
-  const refColumn = findColumn(headers, 'ref no', 'reference number', 'ref')
-  const timeColumn = findColumn(headers, 'time point', 'timepoint', 'duration')
-  if (sampleNameColumn === null || timeColumn === null) throw new Error('The file must contain Sample Name and Time Point columns.')
+  const sampleNameColumn = findColumn(headers, 'sample name', 'sample', 'product name', 'product', 'test sample')
+  const refColumn = findColumn(headers, 'ref no', 'reference number', 'reference', 'ref', 'sample code', 'sample id', 'code')
+  const timeColumn = findColumn(headers, 'time point', 'timepoint', 'duration', 'interval', 'test point', 'age')
+  if (sampleNameColumn === null && refColumn === null) throw new Error('Could not detect a sample name or reference-number column.')
 
   const rows = []
+  let previousSampleName = ''
+  let previousRefNo = ''
   matrix.slice(1).forEach((values, index) => {
     if (!values.some(value => String(value).trim())) return
-    const sampleName = String(values[sampleNameColumn] || '').trim()
-    const refNo = refColumn === null ? '' : String(values[refColumn] || '').trim()
-    const sample = samples.find(item => (refNo && item.ref_no === refNo) || (!refNo && item.name.toLowerCase() === sampleName.toLowerCase()))
-    const rawTimePoint = String(values[timeColumn] || '').trim().toLowerCase()
+    const sampleName = String(sampleNameColumn === null ? '' : values[sampleNameColumn] || '').trim() || previousSampleName
+    const refNo = String(refColumn === null ? '' : values[refColumn] || '').trim() || previousRefNo
+    previousSampleName = sampleName
+    previousRefNo = refNo
+    const sample = samples.find(item => refNo && item.ref_no && item.ref_no.toLowerCase() === refNo.toLowerCase())
+      || samples.find(item => sampleName && item.name.toLowerCase() === sampleName.toLowerCase())
+    const rawTimePoint = String(timeColumn === null ? '' : values[timeColumn] || '').trim().toLowerCase()
     const timePoint = TIME_POINTS.find(point => point.toLowerCase() === rawTimePoint || TIME_LABELS[point].toLowerCase() === rawTimePoint)
     const data = { time_point: timePoint }
     SUFFIXES.forEach(suffix => IMPORT_FIELDS.forEach(field => {
