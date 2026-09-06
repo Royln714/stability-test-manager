@@ -291,6 +291,10 @@ export default function Dashboard() {
   const [samples, setSamples] = useState([])
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [temperatureFilter, setTemperatureFilter] = useState('all')
+  const [failedFilter, setFailedFilter] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [view, setView] = useState('grid')
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -313,9 +317,14 @@ export default function Dashboard() {
   const overdueCount   = overdueActive.length
 
   const filtered = samples.filter(s => {
-    if (statusFilter === 'all') return true
-    if (statusFilter === 'overdue') return (s.status || 'active') === 'active' && getOverdueTPs(s).length > 0
-    return (s.status || 'active') === statusFilter
+    if (statusFilter === 'overdue' && !((s.status || 'active') === 'active' && getOverdueTPs(s).length > 0)) return false
+    if (statusFilter !== 'all' && statusFilter !== 'overdue' && (s.status || 'active') !== statusFilter) return false
+    if (temperatureFilter !== 'all' && !(s.temp_config || []).some(t => String(t.value) === temperatureFilter)) return false
+    if (failedFilter === 'failed' && !s.has_failed_results) return false
+    if (failedFilter === 'passing' && s.has_failed_results) return false
+    if (dateFrom && (!s.date_started || s.date_started < dateFrom)) return false
+    if (dateTo && (!s.date_started || s.date_started > dateTo)) return false
+    return true
   })
 
   const filterCounts = { all: totalSamples, active: activeCount, overdue: overdueCount, on_hold: onHoldCount, completed: completedCount, failed: failedCount }
@@ -376,6 +385,10 @@ export default function Dashboard() {
       {/* Controls */}
       <div className="flex flex-col sm:flex-row gap-3 mb-5">
         <input className="input max-w-xs text-sm" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
+        <select className="input text-sm sm:w-32" value={temperatureFilter} onChange={e => setTemperatureFilter(e.target.value)}><option value="all">All temps</option><option value="25">25°C</option><option value="45">45°C</option><option value="50">50°C</option></select>
+        <select className="input text-sm sm:w-32" value={failedFilter} onChange={e => setFailedFilter(e.target.value)}><option value="all">All results</option><option value="failed">Failed</option><option value="passing">Passing</option></select>
+        <input className="input text-sm" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} title="Started from" />
+        <input className="input text-sm" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} title="Started to" />
         <div className="flex gap-1 bg-gray-100 p-1 rounded-xl flex-wrap flex-1">
           {STATUS_FILTERS.map(f => (
             <button key={f.key}

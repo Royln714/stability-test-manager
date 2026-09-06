@@ -619,13 +619,20 @@ app.get('/api/samples', async (req, res) => {
       : {};
     const samples = await col('samples').find(query).sort({ created_at: -1 }).toArray();
     const result = await Promise.all(samples.map(async s => {
-      const [completed_points, doneRows, image_count] = await Promise.all([
+      const [completed_points, doneRows, image_count, sampleResults] = await Promise.all([
         col('results').countDocuments({ sample_id: s._id }),
         col('results').find({ sample_id: s._id }, { projection: { time_point: 1 } }).toArray(),
         col('images').countDocuments({ sample_id: s._id }),
+        col('results').find({ sample_id: s._id }).toArray(),
       ]);
+      const failedResult = sampleResults.some(result => (
+        (s.spec_ph_min != null && ['25', '45', '50'].some(suffix => result[`ph_${suffix}`] != null && result[`ph_${suffix}`] < s.spec_ph_min)) ||
+        (s.spec_ph_max != null && ['25', '45', '50'].some(suffix => result[`ph_${suffix}`] != null && result[`ph_${suffix}`] > s.spec_ph_max)) ||
+        (s.spec_visc_min != null && ['25', '45', '50'].some(suffix => result[`viscosity_${suffix}`] != null && result[`viscosity_${suffix}`] < s.spec_visc_min)) ||
+        (s.spec_visc_max != null && ['25', '45', '50'].some(suffix => result[`viscosity_${suffix}`] != null && result[`viscosity_${suffix}`] > s.spec_visc_max))
+      ));
       const { _id, temp_config: tc, ...rest } = s;
-      return { id: _id, ...rest, temp_config: parseTc(tc), completed_points, time_points_done: doneRows.map(r => r.time_point), image_count };
+      return { id: _id, ...rest, temp_config: parseTc(tc), completed_points, time_points_done: doneRows.map(r => r.time_point), image_count, has_failed_results: failedResult };
     }));
     res.json(result);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -761,11 +768,13 @@ app.post('/api/samples/:id/results', async (req, res) => {
     if (existing) {
       await col('results').updateOne({ _id: existing._id }, { $set: data });
       result = out({ ...existing, ...data });
+      await logAudit(req.user.id, req.user.username, 'result_updated', req.ip || '', JSON.stringify({ sample_id, time_point, previous: out(existing), updated: data }));
     } else {
       const id = await nextId('results');
       const doc = { _id: id, ...data };
       await col('results').insertOne(doc);
       result = out(doc);
+      await logAudit(req.user.id, req.user.username, 'result_created', req.ip || '', JSON.stringify({ sample_id, time_point }));
     }
     res.json(result);
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -773,7 +782,10 @@ app.post('/api/samples/:id/results', async (req, res) => {
 
 app.delete('/api/results/:id', async (req, res) => {
   try {
-    await col('results').deleteOne({ _id: Number(req.params.id) });
+    const id = Number(req.params.id);
+    const existing = await col('results').findOne({ _id: id });
+    await col('results').deleteOne({ _id: id });
+    if (existing) await logAudit(req.user.id, req.user.username, 'result_deleted', req.ip || '', JSON.stringify({ result: out(existing) }));
     res.json({ success: true });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });

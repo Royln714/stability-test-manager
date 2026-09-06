@@ -27,6 +27,20 @@ const STATUS_CFG = {
 const TEMP_SUBHEADER = ['bg-blue-50/50', 'bg-amber-50/50', 'bg-red-50/50']
 const fmt = v => (v === null || v === undefined || v === '') ? null : Number(v).toFixed(2)
 
+function getValidationWarnings(results) {
+  const limits = { ph: [0, 14], viscosity: [0, 10000000], sg: [0.5, 2], turbidity: [0, 1000000], rpm: [0, 10000] }
+  const warnings = []
+  results.forEach(result => {
+    SUFFIXES.forEach(suffix => Object.entries(limits).forEach(([field, [min, max]]) => {
+      const value = result[`${field}_${suffix}`]
+      if (value !== null && value !== undefined && value !== '' && (Number(value) < min || Number(value) > max)) {
+        warnings.push(`${TIME_LABELS[result.time_point] || result.time_point}: ${field.toUpperCase()} ${suffix}°C value ${value} is outside the usual range`)
+      }
+    }))
+  })
+  return warnings
+}
+
 function parseTempConfig(raw) {
   if (!raw) return DEFAULT_TEMPS
   try { return typeof raw === 'string' ? JSON.parse(raw) : raw } catch { return DEFAULT_TEMPS }
@@ -308,7 +322,10 @@ function ImageGallery({ sampleId, images, onUpdate }) {
                   onChange={e => setEditCaption(p => ({ ...p, [img.id]: e.target.value }))}
                   onBlur={() => editCaption[img.id] !== undefined && saveCaption(img)}
                   onKeyDown={e => e.key === 'Enter' && saveCaption(img)} />
-                <p className="text-xs text-gray-300 truncate">{img.original_name}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-gray-300 truncate">{img.original_name}</p>
+                  {img.url && <a href={img.url} download={img.original_name} target="_blank" rel="noreferrer" className="text-xs text-blue-500 hover:text-blue-700 shrink-0" onClick={e => e.stopPropagation()}>Download</a>}
+                </div>
               </div>
               <button onClick={() => handleDelete(img.id)}
                 className="absolute top-1 right-1 w-6 h-6 bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">✕</button>
@@ -1244,6 +1261,12 @@ export default function SampleDetail() {
 
       {tab === 'Data' && (
         <div>
+          {getValidationWarnings(sample.results).length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-3 text-xs text-amber-800">
+              <p className="font-semibold mb-1">Review unusual measurements</p>
+              {getValidationWarnings(sample.results).slice(0, 5).map(warning => <p key={warning}>• {warning}</p>)}
+            </div>
+          )}
           <div className="flex items-center justify-between mb-3">
             <p className="text-sm text-gray-500">Click any cell or row label to enter measurements · Click Notes column to type directly</p>
             <div className="flex gap-2">
