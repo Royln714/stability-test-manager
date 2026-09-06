@@ -18,14 +18,29 @@ function parseFormulationSheet(sheet, sheetName) {
   if (!raw.length) return { product_name: sheetName, ingredients: [] }
   const matches = row => row.filter(cell => Object.values(FORMULATION_ALIASES).some(aliases => aliases.some(alias => normalizeCell(cell).includes(normalizeCell(alias)))))
   const headerRow = raw.findIndex(row => matches(row).length >= 2)
-  const scanRows = headerRow < 0 ? raw.slice(0, 10) : raw.slice(0, headerRow)
-  const metadata = { product_name: sheetName, ref_no: '' }
+  const scanRows = headerRow < 0 ? raw.slice(0, 15) : raw.slice(0, headerRow)
+  const metadata = { product_name: sheetName, ref_no: '', description: '', application: '', bulk_size: '', status: '', company_name: '', company_address: '', company_tel: '', company_fax: '', remarks: '' }
+  const labelMap = {
+    'product name': 'product_name', product: 'product_name', formulation: 'product_name', name: 'product_name',
+    'ref no': 'ref_no', reference: 'ref_no', 'reference number': 'ref_no', 'batch no': 'ref_no',
+    description: 'description', application: 'application', 'bulk size': 'bulk_size', 'batch size': 'bulk_size',
+    status: 'status', company: 'company_name', 'company name': 'company_name', address: 'company_address',
+    telephone: 'company_tel', phone: 'company_tel', tel: 'company_tel', fax: 'company_fax', remarks: 'remarks', notes: 'remarks',
+  }
+  scanRows.forEach(row => row.forEach((cell, index) => {
+    const label = normalizeCell(cell).replace(/:$/, '')
+    const field = Object.entries(labelMap).find(([key]) => label === key || label.startsWith(`${key} `))?.[1]
+    if (field) {
+      const next = String(row[index + 1] || '').trim()
+      if (next) metadata[field] = next
+    }
+  }))
   const refPattern = /[A-Z]{2,}[\w/-]{2,}/i
   scanRows.flat().map(value => String(value).trim()).filter(Boolean).forEach(value => {
-    if (!metadata.ref_no && refPattern.test(value)) metadata.ref_no = value
-    else if (metadata.product_name === sheetName && value.length > 3 && isNaN(Number(value))) metadata.product_name = value
+    if (!metadata.ref_no && refPattern.test(value) && value.length < 40) metadata.ref_no = value
+    else if (metadata.product_name === sheetName && value.length > 3 && isNaN(Number(value)) && !labelMap[normalizeCell(value)]) metadata.product_name = value
   })
-  if (headerRow < 0) return { ...metadata, ingredients: [] }
+  if (headerRow < 0) return { ...metadata, ingredients: [], procedure: [{ id: 1, text: '' }], specifications: [] }
   const headers = raw[headerRow]
   const colMap = {}
   FORMULATION_FIELDS.forEach(field => {
@@ -40,6 +55,8 @@ function parseFormulationSheet(sheet, sheetName) {
     else ingredient.part = currentPart
     return ingredient
   }).filter(row => row.trade_name || row.inci_name || row.percent)
+  const bulkHeader = headers.map(value => String(value).match(/(\d+(?:\.\d+)?)\s*g/i)).find(Boolean)
+  if (!metadata.bulk_size && bulkHeader) metadata.bulk_size = bulkHeader[1]
   return { ...metadata, ingredients, procedure: [{ id: 1, text: '' }], specifications: [{ id: 1, property: 'Appearance', value: '' }, { id: 2, property: 'Viscosity', value: '' }, { id: 3, property: 'pH', value: '' }] }
 }
 
