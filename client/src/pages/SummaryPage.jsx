@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { getSample, getSamples } from '../api'
 
@@ -155,12 +155,19 @@ export default function SummaryPage() {
           <tbody>
             {visibleRows.map((row, index) => (
               <tr key={`${row.sampleId}-${row.timePoint}`} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                <td className="border border-gray-200 px-3 py-2 whitespace-nowrap">
-                  <label className="flex items-center gap-2 font-medium text-gray-700"><input type="checkbox" checked={selectedIds.has(row.sampleId)} onChange={() => toggleSample(row.sampleId)} />{row.sampleName}</label>
-                </td>
-                <td className="border border-gray-200 px-3 py-2 whitespace-nowrap">{row.refNo}</td>
-                <td className="border border-gray-200 px-3 py-2 whitespace-nowrap">{row.status}</td>
-                <td className="border border-gray-200 px-3 py-2 whitespace-nowrap">{row.dateStarted}</td>
+                {(index === 0 || visibleRows[index - 1].sampleId !== row.sampleId) && (() => {
+                  const sampleRowCount = visibleRows.filter(visibleRow => visibleRow.sampleId === row.sampleId).length
+                  return (
+                    <Fragment key={row.sampleId}>
+                      <td rowSpan={sampleRowCount} className="border border-gray-200 px-3 py-2 whitespace-nowrap align-middle">
+                        <label className="flex items-center gap-2 font-medium text-gray-700"><input type="checkbox" checked={selectedIds.has(row.sampleId)} onChange={() => toggleSample(row.sampleId)} />{row.sampleName}</label>
+                      </td>
+                      <td rowSpan={sampleRowCount} className="border border-gray-200 px-3 py-2 whitespace-nowrap align-middle">{row.refNo}</td>
+                      <td rowSpan={sampleRowCount} className="border border-gray-200 px-3 py-2 whitespace-nowrap align-middle">{row.status}</td>
+                      <td rowSpan={sampleRowCount} className="border border-gray-200 px-3 py-2 whitespace-nowrap align-middle">{row.dateStarted}</td>
+                    </Fragment>
+                  )
+                })()}
                 <td className="border border-gray-200 px-3 py-2 whitespace-nowrap font-medium">{row.timePoint}</td>
                 {SUFFIXES.flatMap(suffix => ['ph', 'viscosity', 'sg', 'turbidity', 'spindle', 'rpm'].map(field => <td key={`${suffix}-${field}`} className="border border-gray-200 px-3 py-2 text-center">{row[`${field}_${suffix}`]}</td>))}
                 {[row.appearance, row.color, row.odor, row.phaseSep, row.microbial, row.notes, row.measuredAt].map((value, valueIndex) => <td key={valueIndex} className="border border-gray-200 px-3 py-2">{value}</td>)}
