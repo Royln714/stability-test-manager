@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { askAgent, deleteAgentFile, getAgentFiles, getSample, getSamples, uploadAgentFile } from '../api'
+import { askAgent, deleteAgentFile, getAgentFiles, getSample, getSamples, upsertResult, uploadAgentFile } from '../api'
 
 const TIME_POINTS = ['Initial', '2_weeks', '1_month', '2_months', '3_months']
 const TIME_LABELS = { Initial: 'Initial', '2_weeks': '2 Weeks', '1_month': '1 Month', '2_months': '2 Months', '3_months': '3 Months' }
@@ -8,6 +8,95 @@ const SUFFIXES = ['25', '45', '50']
 const STATUS_LABELS = { active: 'Active', completed: 'Completed', failed: 'Failed', on_hold: 'On Hold' }
 const MEASUREMENT_FIELDS = ['pH', 'Viscosity', 'SG', 'Turbidity', 'Spindle', 'RPM']
 const ENABLE_AI_AGENT = false
+const IMPORT_FIELDS = ['ph', 'viscosity', 'sg', 'turbidity', 'spindle', 'rpm']
+const NUMERIC_IMPORT_FIELDS = new Set(['ph', 'viscosity', 'sg', 'turbidity', 'rpm'])
+
+function normalizeHeader(value) {
+  return String(value || '').toLowerCase().replace(/[°()]/g, '').replace(/[^a-z0-9]+/g, ' ').trim()
+}
+
+function findColumn(headers, ...names) {
+  const normalized = headers.map(normalizeHeader)
+  const index = normalized.findIndex(header => names.includes(header))
+  return index === -1 ? null : index
+}
+
+function parseImportRows(workbook, samples) {
+  const sheet = workbook.Sheets[workbook.SheetNames[0]]
+  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+  const headers = matrix[0] || []
+  const sampleNameColumn = findColumn(headers, 'sample name', 'sample')
+  const refColumn = findColumn(headers, 'ref no', 'reference number', 'ref')
+  const timeColumn = findColumn(headers, 'time point', 'timepoint', 'duration')
+  if (sampleNameColumn === null || timeColumn === null) throw new Error('The file must contain Sample Name and Time Point columns.')
+
+  const rows = []
+  matrix.slice(1).forEach((values, index) => {
+    if (!values.some(value => String(value).trim())) return
+    const sampleName = String(values[sampleNameColumn] || '').trim()
+    const refNo = refColumn === null ? '' : String(values[refColumn] || '').trim()
+    const sample = samples.find(item => (refNo && item.ref_no === refNo) || (!refNo && item.name.toLowerCase() === sampleName.toLowerCase()))
+    const rawTimePoint = String(values[timeColumn] || '').trim().toLowerCase()
+    const timePoint = TIME_POINTS.find(point => point.toLowerCase() === rawTimePoint || TIME_LABELS[point].toLowerCase() === rawTimePoint)
+    const data = { time_point: timePoint }
+    SUFFIXES.forEach(suffix => IMPORT_FIELDS.forEach(field => {
+      const column = findColumn(headers, `${field} ${suffix}c`, `${field} ${suffix}`)
+      if (column !== null && values[column] !== '') data[`${field}_${suffix}`] = NUMERIC_IMPORT_FIELDS.has(field) ? Number(values[column]) : String(values[column])
+    }))
+    const textColumns = { appearance: ['appearance'], color_obs: ['color'], odor: ['odor'], phase_sep: ['phase sep', 'phase separation'], microbial: ['microbial'], notes: ['notes'], measured_at: ['measured at', 'measurement date'] }
+    Object.entries(textColumns).forEach(([field, names]) => {
+      const column = findColumn(headers, ...names)
+      if (column !== null && values[column] !== '') data[field] = String(values[column])
+    })
+    rows.push({ id: `${index}-${sampleName}-${rawTimePoint}`, line: index + 2, sample, sampleName, refNo, timePoint, data, error: !sample ? 'Sample not found' : !timePoint ? 'Invalid time point' : '' })
+  })
+  return rows
+}
+
+function BulkImportPanel({ samples, onImported }) {
+  const fileRef = useRef(null)
+  const [rows, setRows] = useState([])
+  const [selected, setSelected] = useState(new Set())
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function readFile(event) {
+    const file = event.target.files[0]
+    event.target.value = ''
+    if (!file) return
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
+      const parsed = parseImportRows(workbook, samples)
+      setRows(parsed); setSelected(new Set(parsed.filter(row => !row.error).map(row => row.id))); setError('')
+    } catch (err) { setRows([]); setSelected(new Set()); setError(err.message || 'Could not read the Excel file.') }
+  }
+
+  async function confirmImport() {
+    const validRows = rows.filter(row => selected.has(row.id) && !row.error)
+    if (!validRows.length) return
+    setSaving(true); setError('')
+    try {
+      for (const row of validRows) await upsertResult(row.sample.id, row.data)
+      setRows([]); setSelected(new Set()); await onImported()
+    } catch (err) { setError(err.response?.data?.error || 'Some rows could not be imported.') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <section className="card p-4 mb-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div><h2 className="font-semibold text-gray-900">Bulk Excel Import</h2><p className="text-xs text-gray-500 mt-1">Import edited Summary exports with a preview before saving.</p></div>
+        <button className="btn-secondary text-xs" onClick={() => fileRef.current?.click()}>Choose XLS/XLSX file</button>
+        <input ref={fileRef} type="file" className="hidden" accept=".xls,.xlsx" onChange={readFile} />
+      </div>
+      {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
+      {rows.length > 0 && <>
+        <div className="flex items-center justify-between mt-4 mb-2"><p className="text-xs text-gray-600">{selected.size} of {rows.filter(row => !row.error).length} valid rows selected</p><button className="btn-primary text-xs" disabled={saving || !selected.size} onClick={confirmImport}>{saving ? 'Saving...' : 'Confirm and Save'}</button></div>
+        <div className="max-h-64 overflow-auto border border-gray-200 rounded-lg"><table className="w-full text-xs"><thead className="bg-gray-50"><tr><th className="px-2 py-2 text-left">Use</th><th className="px-2 py-2 text-left">Line</th><th className="px-2 py-2 text-left">Sample</th><th className="px-2 py-2 text-left">Ref No</th><th className="px-2 py-2 text-left">Time Point</th><th className="px-2 py-2 text-left">Status</th></tr></thead><tbody>{rows.map(row => <tr key={row.id} className="border-t border-gray-100"><td className="px-2 py-2"><input type="checkbox" disabled={!!row.error} checked={selected.has(row.id)} onChange={() => setSelected(previous => { const next = new Set(previous); next.has(row.id) ? next.delete(row.id) : next.add(row.id); return next })} /></td><td className="px-2 py-2">{row.line}</td><td className="px-2 py-2">{row.sampleName}</td><td className="px-2 py-2">{row.refNo}</td><td className="px-2 py-2">{row.timePoint ? TIME_LABELS[row.timePoint] : '—'}</td><td className={`px-2 py-2 ${row.error ? 'text-red-600' : 'text-green-600'}`}>{row.error || 'Ready'}</td></tr>)}</tbody></table></div>
+      </>}
+    </section>
+  )
+}
 
 function getRows(samples) {
   return samples.flatMap(sample => {
@@ -119,21 +208,20 @@ export default function SummaryPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    async function load() {
-      try {
-        const sampleList = await getSamples()
-        const details = await Promise.all(sampleList.map(sample => getSample(sample.id)))
-        setSamples(details)
-        setSelectedIds(new Set(details.map(sample => sample.id)))
-      } catch {
-        setError('Unable to load sample data.')
-      } finally {
-        setLoading(false)
-      }
+  async function reloadSamples() {
+    try {
+      const sampleList = await getSamples()
+      const details = await Promise.all(sampleList.map(sample => getSample(sample.id)))
+      setSamples(details)
+      setSelectedIds(previous => previous.size ? new Set(details.filter(sample => previous.has(sample.id)).map(sample => sample.id)) : new Set(details.map(sample => sample.id)))
+    } catch {
+      setError('Unable to load sample data.')
+    } finally {
+      setLoading(false)
     }
-    load()
-  }, [])
+  }
+
+  useEffect(() => { reloadSamples() }, [])
 
   const filteredSamples = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -201,6 +289,8 @@ export default function SummaryPage() {
       </div>
 
       {ENABLE_AI_AGENT && <AgentPanel />}
+
+      <BulkImportPanel samples={samples} onImported={reloadSamples} />
 
       <div className="card p-4 mb-5">
         <div className="flex flex-wrap items-center gap-3">
