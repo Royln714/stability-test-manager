@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { askAgent, deleteAgentFile, getAgentFiles, getSample, getSamples, upsertResult, uploadAgentFile } from '../api'
+import { extractPdfRows } from '../pdfText'
 
 const TIME_POINTS = ['Initial', '2_weeks', '1_month', '2_months', '3_months']
 const TIME_LABELS = { Initial: 'Initial', '2_weeks': '2 Weeks', '1_month': '1 Month', '2_months': '2 Months', '3_months': '3 Months' }
@@ -22,10 +23,7 @@ function findColumn(headers, ...names) {
   return index === -1 ? null : index
 }
 
-function parseImportRows(workbook, samples) {
-  const dataSheetName = workbook.SheetNames.find(name => normalizeHeader(name) === 'recorded data') || workbook.SheetNames[0]
-  const sheet = workbook.Sheets[dataSheetName]
-  const matrix = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+function parseImportMatrix(matrix, samples) {
   const headers = matrix[0] || []
   const sampleNameColumn = findColumn(headers, 'sample name', 'sample', 'product name', 'product', 'test sample')
   const refColumn = findColumn(headers, 'ref no', 'reference number', 'reference', 'ref', 'sample code', 'sample id', 'code')
@@ -60,6 +58,11 @@ function parseImportRows(workbook, samples) {
   return rows
 }
 
+function parseImportRows(workbook, samples) {
+  const dataSheetName = workbook.SheetNames.find(name => normalizeHeader(name) === 'recorded data') || workbook.SheetNames[0]
+  return parseImportMatrix(XLSX.utils.sheet_to_json(workbook.Sheets[dataSheetName], { header: 1, defval: '' }), samples)
+}
+
 function BulkImportPanel({ samples, onImported }) {
   const fileRef = useRef(null)
   const [rows, setRows] = useState([])
@@ -72,8 +75,9 @@ function BulkImportPanel({ samples, onImported }) {
     event.target.value = ''
     if (!file) return
     try {
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
-      const parsed = parseImportRows(workbook, samples)
+      const parsed = file.name.toLowerCase().endsWith('.pdf')
+        ? parseImportMatrix(await extractPdfRows(file), samples)
+        : parseImportRows(XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true }), samples)
       setRows(parsed); setSelected(new Set(parsed.filter(row => !row.error).map(row => row.id))); setError('')
     } catch (err) { setRows([]); setSelected(new Set()); setError(err.message || 'Could not read the Excel file.') }
   }
@@ -94,7 +98,7 @@ function BulkImportPanel({ samples, onImported }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div><h2 className="font-semibold text-gray-900">Bulk Excel Import</h2><p className="text-xs text-gray-500 mt-1">Import edited Summary exports with a preview before saving.</p></div>
         <button className="btn-secondary text-xs" onClick={() => fileRef.current?.click()}>Choose XLS/XLSX file</button>
-        <input ref={fileRef} type="file" className="hidden" accept=".xls,.xlsx" onChange={readFile} />
+        <input ref={fileRef} type="file" className="hidden" accept=".xls,.xlsx,.pdf" onChange={readFile} />
       </div>
       {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
       {rows.length > 0 && <>

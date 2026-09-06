@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { getFormulations, createFormulation, deleteFormulation, getSamples } from '../api'
 import * as XLSX from 'xlsx'
+import { extractPdfRows } from '../pdfText'
 
 const FORMULATION_FIELDS = ['part', 'trade_name', 'description', 'inci_name', 'cas_no', 'percent', 'supplier', 'function', 'compliance']
 const FORMULATION_ALIASES = {
@@ -14,7 +15,7 @@ const FORMULATION_ALIASES = {
 function normalizeCell(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9%]+/g, ' ').trim() }
 
 function parseFormulationSheet(sheet, sheetName) {
-  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+  const raw = Array.isArray(sheet) ? sheet : XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
   if (!raw.length) return { product_name: sheetName, ingredients: [] }
   const matches = row => row.filter(cell => Object.values(FORMULATION_ALIASES).some(aliases => aliases.some(alias => normalizeCell(cell).includes(normalizeCell(alias)))))
   const headerRow = raw.findIndex(row => matches(row).length >= 2)
@@ -74,10 +75,16 @@ export default function Formulations() {
     if (!file) return
     setImporting(true)
     try {
-      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
-      for (const sheetName of workbook.SheetNames) await createFormulation(parseFormulationSheet(workbook.Sheets[sheetName], sheetName))
+      let sheets
+      if (file.name.toLowerCase().endsWith('.pdf')) {
+        sheets = [{ name: file.name.replace(/\.pdf$/i, ''), rows: await extractPdfRows(file) }]
+      } else {
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
+        sheets = workbook.SheetNames.map(name => ({ name, rows: workbook.Sheets[name] }))
+      }
+      for (const sheet of sheets) await createFormulation(parseFormulationSheet(sheet.rows, sheet.name))
       setList(await getFormulations())
-      alert(`Imported ${workbook.SheetNames.length} formulation sheet${workbook.SheetNames.length === 1 ? '' : 's'}.`)
+      alert(`Imported ${sheets.length} formulation sheet${sheets.length === 1 ? '' : 's'}.`)
     } catch (error) {
       alert(error.response?.data?.error || 'Could not import the workbook.')
     } finally { setImporting(false) }
@@ -121,7 +128,7 @@ export default function Formulations() {
         </div>
         <div className="flex gap-2">
           <button className="btn-secondary text-sm" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing...' : '⬆ Import Workbook'}</button>
-          <input ref={importRef} type="file" className="hidden" accept=".xls,.xlsx" onChange={handleWorkbookImport} />
+          <input ref={importRef} type="file" className="hidden" accept=".xls,.xlsx,.pdf" onChange={handleWorkbookImport} />
           <button className="btn-primary" onClick={handleNew}>+ New Formulation</button>
         </div>
       </div>
