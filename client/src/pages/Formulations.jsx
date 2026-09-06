@@ -1,12 +1,70 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { getFormulations, createFormulation, deleteFormulation, getSamples } from '../api'
+import * as XLSX from 'xlsx'
+
+const FORMULATION_FIELDS = ['part', 'trade_name', 'description', 'inci_name', 'cas_no', 'percent', 'supplier', 'function', 'compliance']
+const FORMULATION_ALIASES = {
+  part: ['part', 'phase', 'section'], trade_name: ['trade name', 'ingredient', 'ingredient name', 'material', 'raw material', 'chemical'],
+  description: ['description', 'details'], inci_name: ['inci', 'inci name'], cas_no: ['cas', 'cas no', 'cas number', 'cas rn'],
+  percent: ['%', 'percent', 'percentage', 'concentration', 'amount', 'quantity'], supplier: ['supplier', 'principal', 'vendor', 'manufacturer', 'brand'],
+  function: ['function', 'role', 'purpose'], compliance: ['compliance', 'regulation', 'remark', 'remarks', 'note', 'notes'],
+}
+
+function normalizeCell(value) { return String(value || '').toLowerCase().replace(/[^a-z0-9%]+/g, ' ').trim() }
+
+function parseFormulationSheet(sheet, sheetName) {
+  const raw = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
+  if (!raw.length) return { product_name: sheetName, ingredients: [] }
+  const matches = row => row.filter(cell => Object.values(FORMULATION_ALIASES).some(aliases => aliases.some(alias => normalizeCell(cell).includes(normalizeCell(alias)))))
+  const headerRow = raw.findIndex(row => matches(row).length >= 2)
+  const scanRows = headerRow < 0 ? raw.slice(0, 10) : raw.slice(0, headerRow)
+  const metadata = { product_name: sheetName, ref_no: '' }
+  const refPattern = /[A-Z]{2,}[\w/-]{2,}/i
+  scanRows.flat().map(value => String(value).trim()).filter(Boolean).forEach(value => {
+    if (!metadata.ref_no && refPattern.test(value)) metadata.ref_no = value
+    else if (metadata.product_name === sheetName && value.length > 3 && isNaN(Number(value))) metadata.product_name = value
+  })
+  if (headerRow < 0) return { ...metadata, ingredients: [] }
+  const headers = raw[headerRow]
+  const colMap = {}
+  FORMULATION_FIELDS.forEach(field => {
+    const index = headers.findIndex(header => FORMULATION_ALIASES[field].some(alias => normalizeCell(header).includes(normalizeCell(alias))))
+    if (index >= 0) colMap[field] = index
+  })
+  let currentPart = ''
+  const ingredients = raw.slice(headerRow + 1).filter(row => row.some(value => String(value).trim())).map(row => {
+    const ingredient = { id: Date.now() + Math.random() }
+    FORMULATION_FIELDS.forEach(field => { if (colMap[field] !== undefined) ingredient[field] = String(row[colMap[field]] ?? '').trim() })
+    if (ingredient.part) currentPart = ingredient.part
+    else ingredient.part = currentPart
+    return ingredient
+  }).filter(row => row.trade_name || row.inci_name || row.percent)
+  return { ...metadata, ingredients, procedure: [{ id: 1, text: '' }], specifications: [{ id: 1, property: 'Appearance', value: '' }, { id: 2, property: 'Viscosity', value: '' }, { id: 3, property: 'pH', value: '' }] }
+}
 
 export default function Formulations() {
   const [list, setList] = useState([])
   const [samples, setSamples] = useState([])
   const [loading, setLoading] = useState(true)
+  const [importing, setImporting] = useState(false)
+  const importRef = useRef(null)
   const navigate = useNavigate()
+
+  async function handleWorkbookImport(event) {
+    const file = event.target.files[0]
+    event.target.value = ''
+    if (!file) return
+    setImporting(true)
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
+      for (const sheetName of workbook.SheetNames) await createFormulation(parseFormulationSheet(workbook.Sheets[sheetName], sheetName))
+      setList(await getFormulations())
+      alert(`Imported ${workbook.SheetNames.length} formulation sheet${workbook.SheetNames.length === 1 ? '' : 's'}.`)
+    } catch (error) {
+      alert(error.response?.data?.error || 'Could not import the workbook.')
+    } finally { setImporting(false) }
+  }
 
   useEffect(() => {
     Promise.all([getFormulations(), getSamples().catch(() => [])])
@@ -44,7 +102,11 @@ export default function Formulations() {
           <h1 className="text-2xl font-bold text-gray-900">Formulation Sheets</h1>
           <p className="text-sm text-gray-500 mt-1">Product formulas with ingredients, procedure and specifications</p>
         </div>
-        <button className="btn-primary" onClick={handleNew}>+ New Formulation</button>
+        <div className="flex gap-2">
+          <button className="btn-secondary text-sm" onClick={() => importRef.current?.click()} disabled={importing}>{importing ? 'Importing...' : '⬆ Import Workbook'}</button>
+          <input ref={importRef} type="file" className="hidden" accept=".xls,.xlsx" onChange={handleWorkbookImport} />
+          <button className="btn-primary" onClick={handleNew}>+ New Formulation</button>
+        </div>
       </div>
 
       {list.length === 0 ? (
