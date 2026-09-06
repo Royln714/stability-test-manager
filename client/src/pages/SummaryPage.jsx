@@ -24,7 +24,13 @@ function findColumn(headers, ...names) {
 }
 
 function parseImportMatrix(matrix, samples) {
-  const headers = matrix[0] || []
+  const headerRowIndex = matrix.findIndex(row => {
+    const headers = row || []
+    return findColumn(headers, 'sample name', 'sample', 'product name', 'product', 'test sample') !== null
+      && findColumn(headers, 'time point', 'timepoint', 'duration', 'interval', 'test point', 'age') !== null
+  })
+  if (headerRowIndex < 0) throw new Error('Could not detect a table header with sample and time-point columns.')
+  const headers = matrix[headerRowIndex] || []
   const sampleNameColumn = findColumn(headers, 'sample name', 'sample', 'product name', 'product', 'test sample')
   const refColumn = findColumn(headers, 'ref no', 'reference number', 'reference', 'ref', 'sample code', 'sample id', 'code')
   const timeColumn = findColumn(headers, 'time point', 'timepoint', 'duration', 'interval', 'test point', 'age')
@@ -33,7 +39,7 @@ function parseImportMatrix(matrix, samples) {
   const rows = []
   let previousSampleName = ''
   let previousRefNo = ''
-  matrix.slice(1).forEach((values, index) => {
+  matrix.slice(headerRowIndex + 1).forEach((values, index) => {
     if (!values.some(value => String(value).trim())) return
     const sampleName = String(sampleNameColumn === null ? '' : values[sampleNameColumn] || '').trim() || previousSampleName
     const refNo = String(refColumn === null ? '' : values[refColumn] || '').trim() || previousRefNo
@@ -53,8 +59,9 @@ function parseImportMatrix(matrix, samples) {
       const column = findColumn(headers, ...names)
       if (column !== null && values[column] !== '') data[field] = String(values[column])
     })
-    rows.push({ id: `${index}-${sampleName}-${rawTimePoint}`, line: index + 2, sample, sampleName, refNo, timePoint, data, error: !sample ? 'Sample not found' : !timePoint ? 'Invalid time point' : '' })
+    rows.push({ id: `${index}-${sampleName}-${rawTimePoint}`, line: headerRowIndex + index + 2, sample, sampleName, refNo, timePoint, data, error: !sample ? 'Sample not found' : !timePoint ? 'Invalid time point' : '' })
   })
+  if (!rows.length) throw new Error('The detected table has no data rows.')
   return rows
 }
 

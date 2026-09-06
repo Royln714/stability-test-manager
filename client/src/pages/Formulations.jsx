@@ -18,7 +18,8 @@ function parseFormulationSheet(sheet, sheetName) {
   const raw = Array.isArray(sheet) ? sheet : XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' })
   if (!raw.length) return { product_name: sheetName, ingredients: [] }
   const matches = row => row.filter(cell => Object.values(FORMULATION_ALIASES).some(aliases => aliases.some(alias => normalizeCell(cell).includes(normalizeCell(alias)))))
-  const headerRow = raw.findIndex(row => matches(row).length >= 2)
+  const headerCandidates = raw.slice(0, 50).map((row, index) => ({ index, score: matches(row).length })).filter(candidate => candidate.score >= 2)
+  const headerRow = headerCandidates.sort((a, b) => b.score - a.score || a.index - b.index)[0]?.index ?? -1
   const scanRows = headerRow < 0 ? raw.slice(0, 15) : raw.slice(0, headerRow)
   const metadata = { product_name: sheetName, ref_no: '', description: '', application: '', bulk_size: '', status: '', company_name: '', company_address: '', company_tel: '', company_fax: '', remarks: '' }
   const labelMap = {
@@ -41,7 +42,7 @@ function parseFormulationSheet(sheet, sheetName) {
     if (!metadata.ref_no && refPattern.test(value) && value.length < 40) metadata.ref_no = value
     else if (metadata.product_name === sheetName && value.length > 3 && isNaN(Number(value)) && !labelMap[normalizeCell(value)]) metadata.product_name = value
   })
-  if (headerRow < 0) return { ...metadata, ingredients: [], procedure: [{ id: 1, text: '' }], specifications: [] }
+  if (headerRow < 0) return { ...metadata, ingredients: [], procedure: [{ id: 1, text: '' }], specifications: [], import_error: 'Ingredient header row was not detected.' }
   const headers = raw[headerRow]
   const colMap = {}
   FORMULATION_FIELDS.forEach(field => {
@@ -58,7 +59,7 @@ function parseFormulationSheet(sheet, sheetName) {
   }).filter(row => row.trade_name || row.inci_name || row.percent)
   const bulkHeader = headers.map(value => String(value).match(/(\d+(?:\.\d+)?)\s*g/i)).find(Boolean)
   if (!metadata.bulk_size && bulkHeader) metadata.bulk_size = bulkHeader[1]
-  return { ...metadata, ingredients, procedure: [{ id: 1, text: '' }], specifications: [{ id: 1, property: 'Appearance', value: '' }, { id: 2, property: 'Viscosity', value: '' }, { id: 3, property: 'pH', value: '' }] }
+  return { ...metadata, ingredients, procedure: [{ id: 1, text: '' }], specifications: [{ id: 1, property: 'Appearance', value: '' }, { id: 2, property: 'Viscosity', value: '' }, { id: 3, property: 'pH', value: '' }], import_error: ingredients.length ? '' : 'No ingredient rows were detected.' }
 }
 
 export default function Formulations() {
@@ -82,9 +83,16 @@ export default function Formulations() {
         const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true })
         sheets = workbook.SheetNames.map(name => ({ name, rows: workbook.Sheets[name] }))
       }
-      for (const sheet of sheets) await createFormulation(parseFormulationSheet(sheet.rows, sheet.name))
+      const parsedSheets = sheets.map(sheet => ({ name: sheet.name, formulation: parseFormulationSheet(sheet.rows, sheet.name) }))
+      const failedSheets = parsedSheets.filter(sheet => sheet.formulation.import_error)
+      const validSheets = parsedSheets.filter(sheet => !sheet.formulation.import_error)
+      if (!validSheets.length) throw new Error(`No formulation data could be extracted. ${failedSheets.map(sheet => `${sheet.name}: ${sheet.formulation.import_error}`).join(' ')}`)
+      for (const sheet of validSheets) {
+        const { import_error, ...formulation } = sheet.formulation
+        await createFormulation(formulation)
+      }
       setList(await getFormulations())
-      alert(`Imported ${sheets.length} formulation sheet${sheets.length === 1 ? '' : 's'}.`)
+      alert(`Imported ${validSheets.length} formulation sheet${validSheets.length === 1 ? '' : 's'}.${failedSheets.length ? ` Skipped: ${failedSheets.map(sheet => `${sheet.name} (${sheet.formulation.import_error})`).join(', ')}` : ''}`)
     } catch (error) {
       alert(error.response?.data?.error || 'Could not import the workbook.')
     } finally { setImporting(false) }
