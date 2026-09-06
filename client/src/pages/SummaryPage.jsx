@@ -109,8 +109,8 @@ function BulkImportPanel({ samples, onImported }) {
   return (
     <section className="card p-4 mb-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><h2 className="font-semibold text-gray-900">Bulk Excel Import</h2><p className="text-xs text-gray-500 mt-1">Import edited Summary exports with a preview before saving.</p></div>
-        <div className="flex gap-2"><button className="btn-secondary text-xs" onClick={() => fileRef.current?.click()}>Choose XLS/XLSX file</button>{sourceFile && <button className="btn-secondary text-xs" onClick={() => extractFile(sourceFile)}>↻ Redo extraction</button>}</div>
+        <div><h2 className="font-semibold text-gray-900">Bulk Data Import</h2><p className="text-xs text-gray-500 mt-1">Import XLS, XLSX, or text-based PDF files with a preview before saving. Scanned image-only PDFs need OCR.</p></div>
+        <div className="flex gap-2"><button className="btn-secondary text-xs" onClick={() => fileRef.current?.click()}>Choose XLS, XLSX, or PDF</button>{sourceFile && <button className="btn-secondary text-xs" onClick={() => extractFile(sourceFile)}>↻ Redo extraction</button>}</div>
         <input ref={fileRef} type="file" className="hidden" accept=".xls,.xlsx,.pdf" onChange={readFile} />
       </div>
       {error && <p className="text-xs text-red-600 mt-3">{error}</p>}
