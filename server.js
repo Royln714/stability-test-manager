@@ -358,6 +358,7 @@ app.delete('/api/agent/files/:name', (req, res) => {
 });
 
 app.post('/api/agent/chat', async (req, res) => {
+  if (process.env.ENABLE_AI_AGENT !== 'true') return res.status(503).json({ error: 'AI agent is currently disabled.' });
   if (!process.env.ANTHROPIC_API_KEY) return res.status(503).json({ error: 'ANTHROPIC_API_KEY is not configured.' });
   if (!process.env.ANTHROPIC_WORKSPACE_ID) return res.status(503).json({ error: 'ANTHROPIC_WORKSPACE_ID is not configured.' });
   const prompt = String(req.body?.message || '').trim();

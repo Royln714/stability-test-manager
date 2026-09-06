@@ -29,3 +29,5 @@ services:
         sync: false
       - key: ANTHROPIC_MODEL
         value: claude-3-5-haiku-latest
+      - key: ENABLE_AI_AGENT
+        value: "false"

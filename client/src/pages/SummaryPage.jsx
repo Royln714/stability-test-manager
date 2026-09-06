@@ -7,6 +7,7 @@ const TIME_LABELS = { Initial: 'Initial', '2_weeks': '2 Weeks', '1_month': '1 Mo
 const SUFFIXES = ['25', '45', '50']
 const STATUS_LABELS = { active: 'Active', completed: 'Completed', failed: 'Failed', on_hold: 'On Hold' }
 const MEASUREMENT_FIELDS = ['pH', 'Viscosity', 'SG', 'Turbidity', 'Spindle', 'RPM']
+const ENABLE_AI_AGENT = false
 
 function getRows(samples) {
   return samples.flatMap(sample => {
@@ -199,7 +200,7 @@ export default function SummaryPage() {
         </button>
       </div>
 
-      <AgentPanel />
+      {ENABLE_AI_AGENT && <AgentPanel />}
 
       <div className="card p-4 mb-5">
         <div className="flex flex-wrap items-center gap-3">
